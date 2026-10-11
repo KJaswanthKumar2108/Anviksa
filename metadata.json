@@ -1,0 +1,8 @@
+{
+  "name": "Anvīkṣā — Open Science \u0026 Research Collaboration Platform",
+  "description": "A professional platform connecting researchers, students, and organizations to solve research challenges, address limitations, and track the connected research lifecycle.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
