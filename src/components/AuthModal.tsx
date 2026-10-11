@@ -30,10 +30,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
       setTimeout(() => {
         const mockProfile = {
           id: `user-${Date.now()}`,
-          email: email || 'elena.rostova@inf.ethz.ch',
-          display_name: displayName || 'Dr. Elena Rostova',
-          title: role === 'reviewer' ? 'Senior Peer Reviewer' : role === 'organization_member' ? 'Organization Administrator' : 'Senior AI Researcher',
-          institution: institution || 'ETH Zürich',
+          email,
+          display_name: displayName || undefined,
+          title: role === 'reviewer' ? 'Peer Reviewer' : role === 'organization_member' ? 'Organization Member' : 'Researcher',
+          institution: institution || undefined,
           role: role,
           is_verified: true,
           h_index: 28
@@ -95,7 +95,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
           onAuthSuccess(profile || {
             id: data.user.id,
             email: data.user.email,
-            display_name: data.user.user_metadata?.display_name || 'Researcher',
+            display_name: data.user.user_metadata?.display_name,
             role: data.user.user_metadata?.role || 'researcher'
           });
         }
@@ -153,7 +153,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
                 <input
                   type="text"
                   required
-                  placeholder="Dr. Elena Rostova"
+                  placeholder="Your full name"
                   value={displayName}
                   onChange={(e) => setDisplayName(e.target.value)}
                   className="w-full pl-9 pr-3 py-2 bg-[#FEFAE0] border border-[#DCD5BC] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#D4A373] text-[#342F27] font-medium"

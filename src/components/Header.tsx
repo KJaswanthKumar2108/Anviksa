@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Search, Bell, PlusCircle, User, ChevronDown, BookOpen, Sparkles, LogIn, LogOut, Shield, Menu, Sun, Moon } from 'lucide-react';
+import { LogoMark } from './LogoMark';
 
 interface HeaderProps {
   currentTab: string;
@@ -59,9 +60,7 @@ export const Header: React.FC<HeaderProps> = ({
               onClick={() => onTabChange('home')}
               className="flex items-center gap-2.5 text-left focus:outline-none focus:ring-2 focus:ring-[#D4A373] rounded-xl p-1 cursor-pointer"
             >
-              <div className="w-8 h-8 rounded-xl bg-[#D4A373] hover:bg-[#8B5E34] flex items-center justify-center text-[#342F27] hover:text-white font-bold text-sm shadow-xs transition-colors">
-                AN
-              </div>
+              <LogoMark className="w-8 h-8 shrink-0 transition-transform hover:scale-105" />
               <div>
                 <span className="text-lg font-bold tracking-tight text-[#342F27] whitespace-nowrap">
                   Anvīkṣā
@@ -186,24 +185,26 @@ export const Header: React.FC<HeaderProps> = ({
                   onClick={() => { setShowProfileMenu(!showProfileMenu); setShowNotifications(false); }}
                   className="flex items-center gap-1.5 p-1 text-[#342F27] hover:bg-[#E9EDC9] rounded-xl transition-colors cursor-pointer"
                 >
-                  <img
-                    src={currentUser.avatar_url || "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=120&q=80"}
-                    alt="Avatar"
-                    className="w-7 h-7 rounded-full object-cover border border-[#DCD5BC]"
-                  />
+                  <span className="w-7 h-7 rounded-full border border-[#DCD5BC] bg-[#CCD5AE] flex items-center justify-center">
+                    <User className="w-4 h-4 text-[#342F27]" />
+                  </span>
                   <ChevronDown className="w-3.5 h-3.5 text-[#6B6255] hidden sm:block" />
                 </button>
 
                 {showProfileMenu && (
                   <div className="absolute right-0 mt-2 w-60 bg-[#FAEDCD] border border-[#DCD5BC] rounded-2xl shadow-lg py-2 z-50 animate-in fade-in duration-150">
                     <div className="px-4 py-2 border-b border-[#DCD5BC]">
-                      <p className="text-xs font-bold text-[#342F27]">{currentUser.display_name || 'Dr. Elena Rostova'}</p>
-                      <p className="text-[10px] text-[#6B6255] truncate">{currentUser.email || 'elena.rostova@inf.ethz.ch'}</p>
+                      <p className="text-xs font-bold text-[#342F27]">{currentUser.display_name || currentUser.email}</p>
+                      {currentUser.email && (
+                        <p className="text-[10px] text-[#6B6255] truncate">{currentUser.email}</p>
+                      )}
                       <div className="mt-1 flex items-center gap-1.5 flex-wrap">
                         <span className="text-[10px] font-mono font-bold bg-[#CCD5AE] text-[#342F27] px-2 py-0.5 rounded border border-[#B8C299]">
-                          Tier 1 · Research Scientist
+                          {currentUser.title || 'Researcher'}
                         </span>
-                        <span className="text-[10px] text-[#6B6255]">ETH Zürich</span>
+                        {currentUser.institution && (
+                          <span className="text-[10px] text-[#6B6255]">{currentUser.institution}</span>
+                        )}
                       </div>
                     </div>
                     <button

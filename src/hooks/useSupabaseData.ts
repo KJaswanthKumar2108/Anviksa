@@ -13,18 +13,7 @@ import {
 import { deduplicatePapers, deduplicateById } from '../utils/doiNormalization';
 
 export function useSupabaseData() {
-  const [currentUser, setCurrentUser] = useState<any>(() => {
-    return {
-      id: 'user-101',
-      email: 'elena.rostova@inf.ethz.ch',
-      display_name: 'Dr. Elena Rostova',
-      title: 'Senior AI Researcher',
-      institution: 'ETH Zürich / OpenResearch Fellow',
-      role: 'researcher',
-      is_verified: true,
-      h_index: 28
-    };
-  });
+  const [currentUser, setCurrentUser] = useState<any>(null);
 
   const [papers, setPapers] = useState<Paper[]>(MOCK_PAPERS);
   const [challenges, setChallenges] = useState<Challenge[]>(MOCK_CHALLENGES);
@@ -113,9 +102,9 @@ export function useSupabaseData() {
             paperId: c.paper_id,
             title: c.title,
             contributorId: c.author_id,
-            contributorName: 'Dr. Elena Rostova',
-            contributorTitle: 'Senior AI Researcher',
-            contributorInstitution: 'ETH Zürich',
+            contributorName: c.author_name || 'Researcher',
+            contributorTitle: c.author_title || 'Researcher',
+            contributorInstitution: c.author_institution || '',
             type: c.type,
             summary: c.summary,
             methodology: c.methodology,

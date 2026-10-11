@@ -284,7 +284,7 @@ export default function App() {
       />
 
       {/* Main Workspace Shell */}
-      <div className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 flex">
+      <div className="flex-1 w-full flex">
         
         {/* Left Sidebar */}
         <Sidebar
@@ -295,7 +295,7 @@ export default function App() {
         />
 
         {/* Content Container */}
-        <main className="flex-1 py-6 md:pl-6 min-w-0">
+        <main className="flex-1 py-6 px-4 md:px-6 min-w-0">
           
           <Breadcrumbs
             items={getBreadcrumbItems()}

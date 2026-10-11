@@ -1,6 +1,7 @@
 import React from 'react';
 import { ArrowRight, BookOpen, Target, Sparkles, CheckCircle2, Shield, Users, Award, Building2, Network, ArrowUpRight } from 'lucide-react';
 import { LifecycleBanner } from '../components/LifecycleBanner';
+import { LogoMark } from '../components/LogoMark';
 import { MOCK_CHALLENGES } from '../data/mockData';
 
 interface LandingViewProps {
@@ -21,9 +22,7 @@ export const LandingView: React.FC<LandingViewProps> = ({
       <header className="border-b border-[#DCD5BC] bg-[#FAEDCD] sticky top-0 z-40 shadow-2xs">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-[#D4A373] flex items-center justify-center text-[#342F27] font-bold text-base shadow-xs border border-[#C59465]">
-              AN
-            </div>
+            <LogoMark className="w-8 h-8 shrink-0" />
             <span className="text-lg font-bold tracking-tight text-[#342F27]">Anvīkṣā</span>
           </div>
 
@@ -230,9 +229,7 @@ export const LandingView: React.FC<LandingViewProps> = ({
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col md:flex-row items-center justify-between gap-6">
           <div>
             <div className="flex items-center gap-2 mb-2">
-              <div className="w-6 h-6 rounded-md bg-[#D4A373] text-[#342F27] font-bold text-xs flex items-center justify-center border border-[#C59465]">
-                AN
-              </div>
+              <LogoMark className="w-6 h-6 shrink-0" />
               <span className="font-bold text-[#342F27] text-sm">Anvīkṣā</span>
             </div>
             <p className="text-[11px] text-[#6B6255]">

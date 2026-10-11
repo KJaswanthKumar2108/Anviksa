@@ -36,8 +36,8 @@ export const CommunityView: React.FC = () => {
 
     const newActivity: ActivityItem = {
       id: `act-custom-${Date.now()}`,
-      authorName: 'Dr. Elena Rostova',
-      authorAvatar: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=120&q=80',
+      authorName: 'Community Member',
+      authorAvatar: '',
       authorRole: roleMap[newPostCategory].role,
       hierarchyRole: roleMap[newPostCategory].hierarchy,
       category: newPostCategory,
@@ -205,7 +205,9 @@ export const CommunityView: React.FC = () => {
             <div key={act.id} className="bg-[#FAEDCD] rounded-2xl p-6 border border-[#DCD5BC] shadow-2xs space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-3">
-                  <img src={act.authorAvatar} alt={act.authorName} className="w-10 h-10 rounded-full object-cover border border-[#DCD5BC]" />
+                  <span className="w-10 h-10 rounded-full border border-[#DCD5BC] bg-[#CCD5AE] flex items-center justify-center shrink-0">
+                    <Users className="w-5 h-5 text-[#342F27]" />
+                  </span>
                   <div>
                     <div className="flex items-center gap-2">
                       <h3 className="font-bold text-[#342F27] text-xs">{act.authorName}</h3>

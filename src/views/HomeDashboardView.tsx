@@ -51,7 +51,7 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({
                 Researcher Workbench
               </span>
               <span className="text-xs text-[#DCD5BC]">·</span>
-              <span className="text-xs text-[#6B6255] font-medium">Welcome back, Dr. Elena Rostova</span>
+              <span className="text-xs text-[#6B6255] font-medium">Welcome to Anvīkṣā</span>
             </div>
             <h1 className="text-xl sm:text-2xl font-bold text-[#342F27] tracking-tight">
               Collaborative Open Research Workspace
@@ -275,7 +275,9 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({
               {MOCK_ACTIVITY.map((act) => (
                 <div key={act.id} className="pt-3 first:pt-0">
                   <div className="flex items-center gap-2 mb-1">
-                    <img src={act.authorAvatar} alt={act.authorName} className="w-5 h-5 rounded-full object-cover border border-[#DCD5BC]" />
+                    <span className="w-5 h-5 rounded-full border border-[#DCD5BC] bg-[#CCD5AE] flex items-center justify-center shrink-0">
+                      <Users className="w-3 h-3 text-[#342F27]" />
+                    </span>
                     <span className="font-bold text-[#342F27] text-[11px]">{act.authorName}</span>
                     <span className="text-[10px] text-[#6B6255] ml-auto">{act.timestamp}</span>
                   </div>

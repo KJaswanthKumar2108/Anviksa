@@ -121,7 +121,9 @@ export const ContributorsView: React.FC<ContributorsViewProps> = ({
                 }`}
               >
                 <div className="flex items-start gap-3">
-                  <img src={c.avatar} alt={c.name} className="w-11 h-11 rounded-full object-cover border border-[#DCD5BC] shrink-0" />
+                  <div className="w-11 h-11 rounded-full border border-[#DCD5BC] bg-[#CCD5AE] shrink-0 flex items-center justify-center">
+                    <UserPlus className="w-5 h-5 text-[#342F27]" />
+                  </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center justify-between gap-1 mb-1">
                       <h3 className="font-bold text-[#342F27] text-xs truncate">{c.name}</h3>
@@ -157,7 +159,9 @@ export const ContributorsView: React.FC<ContributorsViewProps> = ({
               
               {/* Profile Header */}
               <div className="flex flex-col sm:flex-row items-start gap-4 pb-6 border-b border-[#DCD5BC]">
-                <img src={selectedContributor.avatar} alt={selectedContributor.name} className="w-20 h-20 rounded-2xl object-cover border border-[#DCD5BC] shadow-2xs" />
+                <div className="w-20 h-20 rounded-2xl border border-[#DCD5BC] bg-[#CCD5AE] shadow-2xs flex items-center justify-center shrink-0">
+                  <UserPlus className="w-8 h-8 text-[#342F27]" />
+                </div>
                 <div className="space-y-1 flex-1 min-w-0">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="flex items-center gap-2">

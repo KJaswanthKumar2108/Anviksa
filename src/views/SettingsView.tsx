@@ -18,10 +18,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   themeConfig: initialConfig,
   onThemeChange
 }) => {
-  const [name, setName] = useState('Dr. Elena Rostova');
-  const [hierarchyRole, setHierarchyRole] = useState<string>('Research Scientist');
-  const [institution, setInstitution] = useState('ETH Zürich / Anvīkṣā Fellow');
-  const [orcid, setOrcid] = useState('0000-0002-1823-9201');
+  const [name, setName] = useState('');
+  const [hierarchyRole, setHierarchyRole] = useState<string>('Researcher');
+  const [institution, setInstitution] = useState('');
+  const [orcid, setOrcid] = useState('');
   const [emailNotifs, setEmailNotifs] = useState(true);
   const [savedSuccess, setSavedSuccess] = useState(false);
 
