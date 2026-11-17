@@ -3,7 +3,14 @@ import { GoogleGenAI, Type } from '@google/genai';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { resolveModelIdentifier, ModelResolution } from './src/lib/ai/modelAdapter.js';
+import { resolveModelIdentifier, validateModelIdentifier, ModelResolution } from './src/lib/ai/modelAdapter.js';
+import { openAlexService } from './server/openAlexService.js';
+import { fullTextService } from './server/fullTextService.js';
+import { evidenceAnalysisService } from './server/evidenceAnalysisService.js';
+import { literatureDiscoveryService } from './server/literatureDiscoveryService.js';
+import { multiPaperIngestionService } from './server/multiPaperIngestionService.js';
+import { researchGapExtractionService } from './server/researchGapExtractionService.js';
+import type { ExtractedDocument } from './src/types/openalex.js';
 
 dotenv.config();
 
@@ -13,18 +20,21 @@ const __dirname = path.dirname(__filename);
 const app = express();
 app.use(express.json());
 
-// Initialize Gemini SDK with User-Agent header for telemetry
-const apiKey = process.env.GEMINI_API_KEY;
-const ai = apiKey
-  ? new GoogleGenAI({
-      apiKey,
-      httpOptions: {
-        headers: {
-          'User-Agent': 'aistudio-build',
-        },
+// Initialize Gemini SDK helper dynamically with User-Agent header for telemetry
+export function getAiClient(): GoogleGenAI | null {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey || apiKey === 'MY_GEMINI_API_KEY' || apiKey.trim().length === 0) {
+    return null;
+  }
+  return new GoogleGenAI({
+    apiKey: apiKey.trim(),
+    httpOptions: {
+      headers: {
+        'User-Agent': 'aistudio-build',
       },
-    })
-  : null;
+    },
+  });
+}
 
 /**
  * Robust JSON parser that handles raw JSON, markdown code fence blocks, and trailing text.
@@ -215,7 +225,7 @@ async function generateContentWithFallback(
       }
     }
 
-    // Attempt 3: Try Resilient Fallback Model (e.g., 'gemini-3.8-flash')
+    // Attempt 3: Try Resilient Fallback Model (e.g., 'gemini-2.5-flash')
     try {
       console.log(`[AI Engine] Attempting inference with fallback model: ${fallbackModel}`);
       const params = buildRequestParams(fallbackModel);
@@ -249,147 +259,145 @@ async function generateContentWithFallback(
 // ====================================================================
 app.post('/api/ai-research/analyze-paper', async (req, res) => {
   try {
-    const { paperTitle, abstract, fullText, doi, modelRequested } = req.body;
+    const { paperTitle, abstract, fullText, fullTextDocument, doi, paperId, modelRequested, prompt } = req.body;
 
-    if (!paperTitle && !abstract) {
-      return res.status(400).json({ error: 'Paper title or abstract is required.' });
+    // 1. Validate empty prompt if supplied
+    if (prompt !== undefined && typeof prompt === 'string' && prompt.trim().length === 0) {
+      return res.status(400).json({ error: 'Prompt cannot be empty.', code: 'EMPTY_PROMPT' });
+    }
+
+    // 2. Validate required paper content (title, abstract, or fullText)
+    const hasTitle = typeof paperTitle === 'string' && paperTitle.trim().length > 0;
+    const hasAbstract = typeof abstract === 'string' && abstract.trim().length > 0;
+    const hasFullText = typeof fullText === 'string' && fullText.trim().length > 0;
+    const hasDocument = fullTextDocument && typeof fullTextDocument === 'object' && Array.isArray(fullTextDocument.chunks) && fullTextDocument.chunks.length > 0;
+
+    if (!hasTitle && !hasAbstract && !hasFullText && !hasDocument) {
+      return res.status(400).json({ 
+        error: 'Paper title, abstract, or text content is required and cannot be empty.',
+        code: 'MISSING_PAPER_CONTENT'
+      });
+    }
+
+    // 3. Validate model identifier before checking provider credentials
+    if (modelRequested) {
+      const modelVal = validateModelIdentifier(modelRequested);
+      if (!modelVal.valid) {
+        return res.status(400).json({
+          error: modelVal.error,
+          code: 'UNSUPPORTED_MODEL_IDENTIFIER'
+        });
+      }
     }
 
     const currentModelInfo = resolveModelIdentifier(modelRequested || 'gemma-4-26b-a4b-it');
 
-    // Missing credentials check - NEVER fabricate a false success
-    if (!ai || !apiKey) {
+    // 4. Missing credentials check (HTTP 503) - Never fabricate a false success
+    const ai = getAiClient();
+    if (!ai) {
       return res.status(503).json({
-        error: 'GEMINI_API_KEY credentials missing on server. Cannot execute live AI inference.',
+        error: 'GEMINI_API_KEY credentials missing or placeholder on server. Please configure a valid GEMINI_API_KEY in .env to execute live AI inference.',
         modelRequested: currentModelInfo.requestedModel,
         modelUsed: 'None',
         isFallback: false,
-        fallbackReason: 'Missing GEMINI_API_KEY credentials.',
+        fallbackReason: 'Missing or placeholder GEMINI_API_KEY credentials.',
         providerRequestSucceeded: false
       });
     }
 
-    const systemInstruction = `You are OpenResearch Intelligence, a rigorous scientific literature analyst.
-Your task is to analyze scientific papers and return a structured JSON object with keys:
-- "paperTitle": string
-- "doi": string
-- "objective": string
-- "problem": string
-- "methodology": string
-- "mainClaims": array of objects ({ claim, sourceLocator, evidenceStatus })
-- "assumptionsConstraints": array of strings
-- "authorStatedLimitations": array of objects ({ limitation, sourceLocator, evidenceStatus })
-- "aiInferredLimitations": array of objects ({ limitation, reasoning, evidenceStatus })
-- "openQuestions": array of strings
-
-Rules:
-1. Keep author-stated limitations strictly separated from AI-inferred limitations.
-2. For author-stated claims and limitations, provide source locators (e.g., Section 4.2, Paragraph 3) whenever possible. Never fabricate page numbers or quotations.
-3. Output MUST be valid JSON.`;
-
-    const userPrompt = `Analyze the following research paper and respond in JSON:
-Title: ${paperTitle}
-DOI: ${doi || 'N/A'}
-Abstract / Content: ${abstract || fullText || 'No text provided.'}`;
-
-    const schema = {
-      type: Type.OBJECT,
-      properties: {
-        paperTitle: { type: Type.STRING },
-        doi: { type: Type.STRING },
-        objective: { type: Type.STRING },
-        problem: { type: Type.STRING },
-        methodology: { type: Type.STRING },
-        mainClaims: {
-          type: Type.ARRAY,
-          items: {
-            type: Type.OBJECT,
-            properties: {
-              claim: { type: Type.STRING },
-              sourceLocator: { type: Type.STRING },
-              evidenceStatus: { type: Type.STRING }
-            }
-          }
-        },
-        assumptionsConstraints: {
-          type: Type.ARRAY,
-          items: { type: Type.STRING }
-        },
-        authorStatedLimitations: {
-          type: Type.ARRAY,
-          items: {
-            type: Type.OBJECT,
-            properties: {
-              limitation: { type: Type.STRING },
-              sourceLocator: { type: Type.STRING },
-              evidenceStatus: { type: Type.STRING }
-            }
-          }
-        },
-        aiInferredLimitations: {
-          type: Type.ARRAY,
-          items: {
-            type: Type.OBJECT,
-            properties: {
-              limitation: { type: Type.STRING },
-              reasoning: { type: Type.STRING },
-              evidenceStatus: { type: Type.STRING }
-            }
-          }
-        },
-        openQuestions: {
-          type: Type.ARRAY,
-          items: { type: Type.STRING }
-        }
-      },
-      required: ['paperTitle', 'objective', 'problem', 'methodology', 'authorStatedLimitations', 'aiInferredLimitations']
-    };
-
-    const result = await generateContentWithFallback(ai, modelRequested || 'gemma-4-26b-a4b-it', userPrompt, systemInstruction, schema);
-
-    // If external provider inference failed across all attempts, return 503 error
-    if (!result.providerRequestSucceeded || !result.text) {
-      return res.status(503).json({
-        error: 'Inference request failed on external AI provider.',
-        modelRequested: result.modelInfo.requestedModel,
-        modelUsed: result.modelUsed,
-        isFallback: result.isFallback,
-        fallbackReason: result.fallbackReason,
-        providerRequestSucceeded: false
-      });
-    }
-
-    const parsed = parseJsonResponse(result.text);
-    const validation = validateAndNormalizePaperAnalysis(parsed);
-
-    // If output is malformed, fail schema validation safely
-    if (!validation.valid) {
-      return res.status(502).json({
-        error: 'Malformed model output failed schema validation safely.',
-        validationError: validation.error,
-        modelRequested: result.modelInfo.requestedModel,
-        modelUsed: result.modelUsed,
-        isFallback: result.isFallback,
-        fallbackReason: result.fallbackReason,
-        providerRequestSucceeded: false
-      });
-    }
+    const analysis = await evidenceAnalysisService.analyzeResearchPaper(ai, {
+      paperTitle: (hasTitle ? paperTitle.trim() : 'Untitled Research Analysis'),
+      doi: doi || null,
+      paperId: paperId || undefined,
+      abstract: abstract || undefined,
+      fullText: fullText || undefined,
+      fullTextDocument: fullTextDocument || null,
+      modelRequested: modelRequested || 'gemma-4-26b-a4b-it'
+    });
 
     return res.json({
-      modelRequested: result.modelInfo.requestedModel,
-      modelUsed: result.modelUsed,
-      isFallback: result.isFallback,
-      fallbackReason: result.fallbackReason,
       providerRequestSucceeded: true,
-      adapterNotes: result.modelInfo.notes,
       analysisStatus: 'completed',
-      timestamp: new Date().toISOString(),
-      ...validation.normalized
+      ...analysis
     });
 
   } catch (error: any) {
     console.error('Paper Analysis Error:', error);
-    return res.status(500).json({ error: 'Failed to complete paper analysis', details: error?.message });
+    const msg = error?.message || String(error);
+    let status = error.status || 500;
+    if (msg.includes('timeout') || msg.includes('DEADLINE_EXCEEDED') || error.code === 'ETIMEDOUT') {
+      status = 504;
+    } else if (msg.includes('429') || msg.includes('RESOURCE_EXHAUSTED') || msg.includes('Quota exceeded')) {
+      status = 429;
+    } else if (msg.includes('API_KEY_INVALID') || msg.includes('401') || msg.includes('unauthorized')) {
+      status = 401;
+    } else if (msg.includes('JSON') || msg.includes('validation')) {
+      status = 422;
+    }
+    return res.status(status).json({
+      error: error.message || 'Failed to complete paper analysis',
+      details: error?.message,
+      providerRequestSucceeded: false
+    });
+  }
+});
+
+// ====================================================================
+// 1B. PAPER COMPARISON ENDPOINT
+// ====================================================================
+app.post('/api/ai-research/compare-papers', async (req, res) => {
+  try {
+    const { paperA, paperB, modelRequested } = req.body;
+
+    if (!paperA || !paperB || !paperA.title || !paperB.title || !paperA.title.trim() || !paperB.title.trim()) {
+      return res.status(400).json({ error: 'Both paperA (with title) and paperB (with title) are required.', code: 'INVALID_REQUEST' });
+    }
+
+    if (modelRequested) {
+      const modelVal = validateModelIdentifier(modelRequested);
+      if (!modelVal.valid) {
+        return res.status(400).json({ error: modelVal.error, code: 'UNSUPPORTED_MODEL_IDENTIFIER' });
+      }
+    }
+
+    const ai = getAiClient();
+    if (!ai) {
+      return res.status(503).json({
+        error: 'GEMINI_API_KEY credentials missing or placeholder on server. Cannot execute live AI inference.',
+        providerRequestSucceeded: false
+      });
+    }
+
+    const comparison = await evidenceAnalysisService.comparePapers(
+      ai,
+      paperA,
+      paperB,
+      modelRequested || 'gemma-4-26b-a4b-it'
+    );
+
+    return res.json({
+      providerRequestSucceeded: true,
+      ...comparison
+    });
+
+  } catch (error: any) {
+    console.error('Paper Comparison Error:', error);
+    const msg = error?.message || String(error);
+    let status = error.status || 500;
+    if (msg.includes('timeout') || msg.includes('DEADLINE_EXCEEDED') || error.code === 'ETIMEDOUT') {
+      status = 504;
+    } else if (msg.includes('429') || msg.includes('RESOURCE_EXHAUSTED') || msg.includes('Quota exceeded')) {
+      status = 429;
+    } else if (msg.includes('API_KEY_INVALID') || msg.includes('401') || msg.includes('unauthorized')) {
+      status = 401;
+    } else if (msg.includes('JSON') || msg.includes('validation')) {
+      status = 422;
+    }
+    return res.status(status).json({
+      error: error.message || 'Failed to complete paper comparison',
+      details: error?.message,
+      providerRequestSucceeded: false
+    });
   }
 });
 
@@ -400,19 +408,27 @@ app.post('/api/ai-research/generate-challenge-draft', async (req, res) => {
   try {
     const { paperTitle, limitationText, category, modelRequested } = req.body;
 
-    if (!paperTitle || !limitationText) {
-      return res.status(400).json({ error: 'paperTitle and limitationText are required.' });
+    if (!paperTitle || !limitationText || !paperTitle.trim() || !limitationText.trim()) {
+      return res.status(400).json({ error: 'paperTitle and limitationText are required and cannot be empty.', code: 'INVALID_REQUEST' });
+    }
+
+    if (modelRequested) {
+      const modelVal = validateModelIdentifier(modelRequested);
+      if (!modelVal.valid) {
+        return res.status(400).json({ error: modelVal.error, code: 'UNSUPPORTED_MODEL_IDENTIFIER' });
+      }
     }
 
     const currentModelInfo = resolveModelIdentifier(modelRequested || 'gemma-4-26b-a4b-it');
 
-    if (!ai || !apiKey) {
+    const ai = getAiClient();
+    if (!ai) {
       return res.status(503).json({
-        error: 'GEMINI_API_KEY credentials missing on server. Cannot generate challenge draft.',
+        error: 'GEMINI_API_KEY credentials missing or placeholder on server. Cannot generate challenge draft.',
         modelRequested: currentModelInfo.requestedModel,
         modelUsed: 'None',
         isFallback: false,
-        fallbackReason: 'Missing GEMINI_API_KEY credentials.',
+        fallbackReason: 'Missing or placeholder GEMINI_API_KEY credentials.',
         providerRequestSucceeded: false
       });
     }
@@ -487,19 +503,27 @@ app.post('/api/ai-research/match-contributors', async (req, res) => {
   try {
     const { challengeTitle, problemStatement, category, contributorsList, modelRequested } = req.body;
 
-    if (!challengeTitle) {
-      return res.status(400).json({ error: 'challengeTitle is required.' });
+    if (!challengeTitle || !challengeTitle.trim()) {
+      return res.status(400).json({ error: 'challengeTitle is required and cannot be empty.', code: 'INVALID_REQUEST' });
+    }
+
+    if (modelRequested) {
+      const modelVal = validateModelIdentifier(modelRequested);
+      if (!modelVal.valid) {
+        return res.status(400).json({ error: modelVal.error, code: 'UNSUPPORTED_MODEL_IDENTIFIER' });
+      }
     }
 
     const currentModelInfo = resolveModelIdentifier(modelRequested || 'gemma-4-26b-a4b-it');
 
-    if (!ai || !apiKey) {
+    const ai = getAiClient();
+    if (!ai) {
       return res.status(503).json({
-        error: 'GEMINI_API_KEY credentials missing on server. Cannot match contributors.',
+        error: 'GEMINI_API_KEY credentials missing or placeholder on server. Cannot match contributors.',
         modelRequested: currentModelInfo.requestedModel,
         modelUsed: 'None',
         isFallback: false,
-        fallbackReason: 'Missing GEMINI_API_KEY credentials.',
+        fallbackReason: 'Missing or placeholder GEMINI_API_KEY credentials.',
         providerRequestSucceeded: false
       });
     }
@@ -612,33 +636,33 @@ app.get('/api/ai-research/run-evaluation', (req, res) => {
   return res.json(benchmarkResult);
 });
 
-// Legacy fallback endpoint
+// Legacy research endpoint
 app.post('/api/ai-research', async (req, res) => {
   try {
-    const { query, mode, paperTitle, modelRequested } = req.body;
-    if (!query) return res.status(400).json({ error: 'Query parameter is required.' });
+    const { query, mode, paperTitle, modelRequested, prompt } = req.body;
+    const targetQuery = query || prompt;
+    if (!targetQuery || typeof targetQuery !== 'string' || !targetQuery.trim()) {
+      return res.status(400).json({ error: 'Query or prompt parameter is required and cannot be empty.', code: 'EMPTY_PROMPT' });
+    }
+
+    if (modelRequested) {
+      const modelVal = validateModelIdentifier(modelRequested);
+      if (!modelVal.valid) {
+        return res.status(400).json({ error: modelVal.error, code: 'UNSUPPORTED_MODEL_IDENTIFIER' });
+      }
+    }
 
     const currentModelInfo = resolveModelIdentifier(modelRequested || 'gemma-4-31b-it');
 
+    const ai = getAiClient();
     if (!ai) {
-      return res.json({
+      return res.status(503).json({
+        error: 'GEMINI_API_KEY credentials missing or placeholder on server. Please configure a valid GEMINI_API_KEY in .env to execute live AI inference.',
         modelRequested: currentModelInfo.requestedModel,
-        modelUsed: `${currentModelInfo.resolvedModel} (Offline Local Fallback)`,
-        isFallback: true,
-        extractedSourceInfo: `Analysis of topic: "${query}". Factual summary derived from literature.`,
-        researchGaps: [
-          'High computational activation memory overhead in long-context sequences',
-          'Thermal fragility of bridge RNA constructs above 37°C'
-        ],
-        aiGeneratedHypotheses: [
-          'Hypothesis: Chunked state space checkpointing reduces backward memory to O(1).',
-          'Hypothesis: Trehalose matrix encapsulation preserves Cas12a stability at 40°C.'
-        ],
-        verifiedFindings: [
-          'Sub-quadratic linear time complexity O(N) verified up to 128k context lengths.',
-          'Bridge RNA restricts non-specific off-target cleavage by 98.4%.'
-        ],
-        limitationsNote: 'Epistemic Warning: These AI-generated hypotheses are exploratory literature review proposals. They require empirical experimental verification and peer review.'
+        modelUsed: 'None',
+        isFallback: false,
+        fallbackReason: 'Missing or placeholder GEMINI_API_KEY credentials.',
+        providerRequestSucceeded: false
       });
     }
 
@@ -667,6 +691,447 @@ Format your response as JSON with:
   } catch (error: any) {
     console.error('Gemini API Error:', error);
     return res.status(500).json({ error: 'Failed to process research analysis.', details: error?.message });
+  }
+});
+
+// ====================================================================
+// 5. OPENALEX SCHOLARLY LITERATURE ENDPOINTS
+// ====================================================================
+
+/**
+ * GET /api/research/search
+ * Searches OpenAlex Works for live scholarly research papers.
+ * Query parameters:
+ *  - q: search query string (required)
+ *  - page: page number (default: 1)
+ *  - perPage: results per page (default: 10, max: 100)
+ *  - filter: optional OpenAlex filter expression
+ *  - sort: optional sort order (e.g. "cited_by_count:desc")
+ */
+app.get('/api/research/search', async (req, res) => {
+  try {
+    const query = String(req.query.q || '').trim();
+    if (!query) {
+      return res.status(400).json({
+        error: 'Search query is required. Provide `?q=query_term` in the request url.',
+        source: 'OpenAlex'
+      });
+    }
+
+    if (!openAlexService.isConfigured()) {
+      return res.status(503).json({
+        error: 'OPENALEX_API_KEY is not configured on the server environment.',
+        source: 'OpenAlex',
+        configured: false
+      });
+    }
+
+    const page = parseInt(req.query.page as string, 10) || 1;
+    const perPage = parseInt(req.query.perPage as string, 10) || 10;
+    const filter = req.query.filter ? String(req.query.filter) : undefined;
+    const sort = req.query.sort ? String(req.query.sort) : undefined;
+    const searchField = req.query.field === 'title' ? 'title' : 'default';
+
+    const data = await openAlexService.searchWorks(query, { page, perPage, filter, sort, searchField });
+    return res.json({
+      success: true,
+      source: 'OpenAlex',
+      timestamp: new Date().toISOString(),
+      ...data
+    });
+  } catch (error: any) {
+    const statusCode = error.status || 500;
+    return res.status(statusCode).json({
+      success: false,
+      error: error.message || 'Failed to search OpenAlex research literature.',
+      source: 'OpenAlex',
+      code: error.code || 'OPENALEX_REQUEST_FAILED',
+      providerStatus: error.providerStatus || null
+    });
+  }
+});
+
+/**
+ * GET /api/research/work
+ * Resolves a single scholarly paper by DOI or OpenAlex Work ID.
+ * Query parameters:
+ *  - doi: Digital Object Identifier (e.g., "10.1038/nature23474" or "https://doi.org/10.1038/nature23474")
+ *  - id: OpenAlex ID (e.g., "W2559394418" or "https://openalex.org/W2559394418")
+ */
+app.get('/api/research/work', async (req, res) => {
+  try {
+    const identifier = String(req.query.doi || req.query.id || '').trim();
+    if (!identifier) {
+      return res.status(400).json({
+        error: 'A DOI or OpenAlex ID is required. Provide `?doi=...` or `?id=...` in the request url.',
+        source: 'OpenAlex'
+      });
+    }
+
+    if (!openAlexService.isConfigured()) {
+      return res.status(503).json({
+        error: 'OPENALEX_API_KEY is not configured on the server environment.',
+        source: 'OpenAlex',
+        configured: false
+      });
+    }
+
+    const paper = await openAlexService.getWorkByDoiOrId(identifier);
+    return res.json({
+      success: true,
+      source: 'OpenAlex',
+      timestamp: new Date().toISOString(),
+      paper
+    });
+  } catch (error: any) {
+    const statusCode = error.status || 500;
+    return res.status(statusCode).json({
+      success: false,
+      error: error.message || 'Failed to resolve research publication from OpenAlex.',
+      source: 'OpenAlex',
+      code: error.code || 'OPENALEX_LOOKUP_FAILED',
+      providerStatus: error.providerStatus || null
+    });
+  }
+});
+
+// ====================================================================
+// 6. OPEN-ACCESS FULL-TEXT RETRIEVAL & EXTRACTION ENDPOINTS
+// ====================================================================
+
+/**
+ * POST /api/research/fulltext/retrieve
+ * Discovers, downloads, validates, and extracts full text for a paper by DOI or OpenAlex ID.
+ */
+app.post('/api/research/fulltext/retrieve', async (req, res) => {
+  try {
+    const identifier = String(req.body?.identifier || req.body?.doi || req.body?.id || '').trim();
+    if (!identifier) {
+      return res.status(400).json({
+        success: false,
+        error: 'Identifier is required. Provide `identifier`, `doi`, or `id` in the request body.'
+      });
+    }
+
+    const result = await fullTextService.retrieveAndExtractForPaper(identifier);
+    return res.json({
+      success: true,
+      ...result
+    });
+  } catch (error: any) {
+    const statusCode = error.status || 500;
+    return res.status(statusCode).json({
+      success: false,
+      error: error.message || 'Failed to retrieve or extract full text.',
+      code: error.code || 'FULLTEXT_RETRIEVAL_FAILED'
+    });
+  }
+});
+
+/**
+ * GET /api/research/fulltext/status
+ * Queries full-text extraction status and metadata from database by DOI.
+ */
+app.get('/api/research/fulltext/status', async (req, res) => {
+  try {
+    const doi = String(req.query.doi || '').trim();
+    if (!doi) {
+      return res.status(400).json({
+        success: false,
+        error: 'DOI parameter is required.'
+      });
+    }
+
+    const cleanDoi = doi.replace(/^https?:\/\/doi\.org\//i, '').trim();
+
+    // Query OpenAlex first for real-time OA availability
+    try {
+      const openAlexPaper = await openAlexService.getWorkByDoiOrId(cleanDoi);
+      const oaInfo = fullTextService.prioritizeOaLocations(openAlexPaper);
+
+      return res.json({
+        success: true,
+        doi: cleanDoi,
+        title: openAlexPaper.title,
+        openAlexId: openAlexPaper.openAlexId,
+        isOa: oaInfo.isOa,
+        hasPdf: Boolean(oaInfo.pdfUrl),
+        pdfUrl: oaInfo.pdfUrl,
+        landingUrl: oaInfo.landingUrl,
+        sourceType: oaInfo.sourceType,
+        license: oaInfo.license,
+        status: oaInfo.pdfUrl ? 'pdf_available' : oaInfo.landingUrl ? 'html_available' : 'metadata_only'
+      });
+    } catch (oaErr: any) {
+      return res.status(oaErr.status || 404).json({
+        success: false,
+        error: oaErr.message || 'Could not verify paper availability.'
+      });
+    }
+  } catch (error: any) {
+    return res.status(500).json({
+      success: false,
+      error: error.message || 'Error checking full text status.'
+    });
+  }
+});
+
+/**
+ * POST /api/research/fulltext/extract-url
+ * Validates, retrieves, and extracts structured sections and Gemma chunks
+ * from an approved open-access PDF URL directly.
+ */
+app.post('/api/research/fulltext/extract-url', async (req, res) => {
+  try {
+    const url = String(req.body?.url || '').trim();
+    const title = String(req.body?.title || 'Scientific Publication').trim();
+    const doi = req.body?.doi ? String(req.body.doi).trim() : null;
+    const license = req.body?.license ? String(req.body.license).trim() : null;
+    const maxBytes = req.body?.maxBytes ? Number(req.body.maxBytes) : undefined;
+    const timeoutMs = req.body?.timeoutMs ? Number(req.body.timeoutMs) : undefined;
+
+    if (!url) {
+      return res.status(400).json({
+        success: false,
+        error: 'URL is required in request body.'
+      });
+    }
+
+    const download = await fullTextService.fetchAndValidateDocument(url, { maxBytes, timeoutMs });
+
+    if (!download.isPdf) {
+      return res.status(422).json({
+        success: false,
+        error: 'Target URL did not return a valid PDF document (magic bytes %PDF- missing).'
+      });
+    }
+
+    const mod = await import('pdf-parse');
+    const PDFParserClass = mod.PDFParse || (mod as any).default?.PDFParse || (mod as any).default || mod;
+    const parser = new PDFParserClass({ data: download.buffer });
+    const parseResult = await parser.getText();
+    if (typeof parser.destroy === 'function') {
+      await parser.destroy();
+    }
+
+    const pages = Array.isArray(parseResult.pages) ? parseResult.pages : [{ num: 1, text: parseResult.text || '' }];
+    if (pages.length === 0 || !pages.some((p: any) => p.text && p.text.trim().length > 0)) {
+      return res.status(422).json({
+        success: false,
+        error: 'PDF contains no extractable text characters (scanned image bitmap).'
+      });
+    }
+
+    const { sections, gemmaChunks, characterCount } = fullTextService.segmentSectionsAndChunks(pages, {
+      title,
+      doi,
+      license,
+      sourceUrl: url,
+      checksum: download.checksum
+    });
+
+    const document: ExtractedDocument = {
+      title,
+      doi,
+      pageCount: parseResult.total || pages.length,
+      characterCount,
+      checksumSha256: download.checksum,
+      sourceUrl: url,
+      sourceType: 'pdf',
+      license,
+      sections,
+      gemmaChunks,
+      extractedAt: new Date().toISOString()
+    };
+
+    return res.json({
+      success: true,
+      status: 'extracted',
+      document
+    });
+  } catch (error: any) {
+    const statusCode = error.status || 500;
+    return res.status(statusCode).json({
+      success: false,
+      error: error.message || 'Failed to process and extract document.',
+      code: error.code || 'EXTRACTION_FAILED'
+    });
+  }
+});
+
+// ====================================================================
+// 8. STAGE 4B: MULTI-VECTOR LITERATURE DISCOVERY & INGESTION ENDPOINTS
+// ====================================================================
+
+/**
+ * Multi-Vector Literature Corpus Discovery
+ * Supports keyword search, backward citations, forward citations, concept expansion,
+ * and targeted counter-evidence discovery with explicit coverage metadata.
+ */
+app.post('/api/research/literature/discover', async (req, res) => {
+  try {
+    const {
+      topicQuery,
+      seedDoiOrOpenAlexId,
+      maxCandidatesBudget,
+      perStrategyLimit,
+      targetBatchSize,
+      includeBackwardCitations,
+      includeForwardCitations,
+      includeConceptExpansion,
+      includeCounterEvidence,
+      minYear,
+      maxYear
+    } = req.body;
+
+    if (!topicQuery && !seedDoiOrOpenAlexId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Either topicQuery or seedDoiOrOpenAlexId is required for corpus discovery.',
+        code: 'MISSING_DISCOVERY_INPUT'
+      });
+    }
+
+    const discoveryResult = await literatureDiscoveryService.discoverCorpus({
+      topicQuery,
+      seedDoiOrOpenAlexId,
+      maxCandidatesBudget,
+      perStrategyLimit,
+      targetBatchSize,
+      includeBackwardCitations,
+      includeForwardCitations,
+      includeConceptExpansion,
+      includeCounterEvidence,
+      minYear,
+      maxYear
+    });
+
+    return res.json({
+      success: true,
+      ...discoveryResult
+    });
+  } catch (err: any) {
+    const statusCode = err.status || 500;
+    return res.status(statusCode).json({
+      success: false,
+      error: err.message || 'Failed to execute multi-vector literature discovery.',
+      code: err.code || 'DISCOVERY_FAILED'
+    });
+  }
+});
+
+/**
+ * Multi-Paper Ingestion Batch Endpoint
+ * Executes parallel, failure-isolated ingestion across candidate papers (3 to 12 max)
+ * with runtime source and extracted-text SHA-256 computation, Unicode codepoints offsets,
+ * IMRAD chunking, and database persistence.
+ */
+app.post('/api/research/literature/ingest-batch', async (req, res) => {
+  try {
+    const { papers, concurrency, persistToDatabase } = req.body;
+
+    if (!Array.isArray(papers) || papers.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'papers must be a non-empty array of DOIs, OpenAlex IDs, or work objects.',
+        code: 'INVALID_BATCH_INPUT'
+      });
+    }
+
+    const batchResult = await multiPaperIngestionService.ingestBatch(papers, {
+      concurrency: concurrency || 3,
+      persistToDatabase: persistToDatabase !== false
+    });
+
+    return res.json({
+      success: true,
+      ...batchResult
+    });
+  } catch (err: any) {
+    const statusCode = err.status || 500;
+    return res.status(statusCode).json({
+      success: false,
+      error: err.message || 'Failed to execute multi-paper batch ingestion.',
+      code: err.code || 'BATCH_INGESTION_FAILED'
+    });
+  }
+});
+
+// ====================================================================
+// 9. STAGE 4C: AI RESEARCH GAP EXTRACTION & EPISTEMIC CLASSIFICATION
+// ====================================================================
+
+/**
+ * AI Research Gap Extraction from Single Ingested Paper
+ * Uses Gemma 4 MoE (gemma-4-26b-a4b-it) with deterministic evidence grounding.
+ */
+app.post('/api/research/gaps/extract', async (req, res) => {
+  try {
+    const { paper, modelRequested, maxChunksPerPaper, persistToDatabase, visibility } = req.body;
+
+    if (!paper || (!paper.chunks && !paper.title)) {
+      return res.status(400).json({
+        success: false,
+        error: 'paper object with title and chunks is required for gap extraction.',
+        code: 'INVALID_PAPER_INPUT'
+      });
+    }
+
+    const extractionResult = await researchGapExtractionService.extractFromPaper(paper, {
+      modelRequested,
+      maxChunksPerPaper: maxChunksPerPaper || 12,
+      persistToDatabase: persistToDatabase !== false,
+      visibility: visibility || 'public'
+    });
+
+    return res.json({
+      success: true,
+      ...extractionResult
+    });
+  } catch (err: any) {
+    const statusCode = err.status || 500;
+    return res.status(statusCode).json({
+      success: false,
+      error: err.message || 'Failed to extract research gap claims from paper.',
+      code: err.code || 'EXTRACTION_FAILED'
+    });
+  }
+});
+
+/**
+ * Batch AI Research Gap Extraction
+ * Processes multiple ingested papers with failure isolation.
+ */
+app.post('/api/research/gaps/extract-batch', async (req, res) => {
+  try {
+    const { papers, modelRequested, maxChunksPerPaper, persistToDatabase, visibility } = req.body;
+
+    if (!Array.isArray(papers) || papers.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'papers array must be a non-empty array of ingested paper objects.',
+        code: 'INVALID_BATCH_INPUT'
+      });
+    }
+
+    const batchResult = await researchGapExtractionService.extractBatch(papers, {
+      modelRequested,
+      maxChunksPerPaper: maxChunksPerPaper || 12,
+      persistToDatabase: persistToDatabase !== false,
+      visibility: visibility || 'public'
+    });
+
+    return res.json({
+      success: true,
+      ...batchResult
+    });
+  } catch (err: any) {
+    const statusCode = err.status || 500;
+    return res.status(statusCode).json({
+      success: false,
+      error: err.message || 'Failed to execute batch research gap extraction.',
+      code: err.code || 'BATCH_EXTRACTION_FAILED'
+    });
   }
 });
 

@@ -1,18 +1,20 @@
 import React, { useState } from 'react';
 import { Search, Building2, MapPin, Globe, Target, DollarSign, Award } from 'lucide-react';
-import { MOCK_ORGANIZATIONS, Organization } from '../data/mockData';
+import { Organization } from '../data/mockData';
 
 interface OrganizationsViewProps {
+  organizations?: Organization[];
   onSelectChallenge?: (challengeId: string) => void;
 }
 
-export const OrganizationsView: React.FC<OrganizationsViewProps> = () => {
+export const OrganizationsView: React.FC<OrganizationsViewProps> = ({ organizations = [] }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedType, setSelectedType] = useState('All');
 
+  const sourceOrgs = organizations;
   const orgTypes = ['All', 'University', 'Research Institute', 'Tech Enterprise', 'Non-Profit'];
 
-  const filteredOrgs = MOCK_ORGANIZATIONS.filter((org) => {
+  const filteredOrgs = sourceOrgs.filter((org) => {
     const matchesSearch =
       org.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       org.location.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -74,7 +76,13 @@ export const OrganizationsView: React.FC<OrganizationsViewProps> = () => {
           >
             <div>
               <div className="flex items-start gap-3 mb-3">
-                <img src={org.logo} alt={org.name} className="w-12 h-12 rounded-xl object-cover border border-[#DCD5BC] shrink-0" />
+                {org.logo ? (
+                  <img src={org.logo} alt={org.name} className="w-12 h-12 rounded-xl object-cover border border-[#DCD5BC] shrink-0" />
+                ) : (
+                  <div className="w-12 h-12 rounded-xl bg-[#E9EDC9] border border-[#DCD5BC] flex items-center justify-center text-[#8B5E34] shrink-0">
+                    <Building2 className="w-6 h-6" />
+                  </div>
+                )}
                 <div>
                   <span className="text-[10px] font-bold text-[#342F27] bg-[#CCD5AE] px-2 py-0.5 rounded border border-[#B8C299] uppercase">
                     {org.type}

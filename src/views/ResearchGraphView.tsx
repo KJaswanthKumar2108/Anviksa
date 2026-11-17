@@ -25,7 +25,7 @@ import {
   Move
 } from 'lucide-react';
 import { GraphNode, GraphEdge } from '../data/mockData';
-import { getStoredGraph } from '../utils/researchGraphStore';
+import { getStoredGraph, syncGraphWithSupabase } from '../utils/researchGraphStore';
 
 interface ResearchGraphViewProps {
   onNavigateTab?: (tab: string) => void;
@@ -52,6 +52,11 @@ export const ResearchGraphView: React.FC<ResearchGraphViewProps> = ({ onNavigate
     if (data.nodes.length > 0 && !selectedNode) {
       setSelectedNode(data.nodes[0]);
     }
+
+    // Hydrate edges from Supabase if present
+    syncGraphWithSupabase(data.edges).then((mergedEdges) => {
+      setGraphData(prev => ({ ...prev, edges: mergedEdges }));
+    });
   }, []);
 
   const nodeColors: Record<string, { bg: string; border: string; text: string; labelBg: string; name: string }> = {

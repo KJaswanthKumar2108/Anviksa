@@ -1,4 +1,5 @@
 import { MOCK_GRAPH_NODES, MOCK_GRAPH_EDGES, GraphNode, GraphEdge, Challenge, Contribution } from '../data/mockData';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
 
 const LOCAL_STORAGE_KEY_GRAPH_NODES = 'openresearch_graph_nodes_v2';
 const LOCAL_STORAGE_KEY_GRAPH_EDGES = 'openresearch_graph_edges_v2';
@@ -22,6 +23,30 @@ export function saveStoredGraph(nodes: GraphNode[], edges: GraphEdge[]) {
     localStorage.setItem(LOCAL_STORAGE_KEY_GRAPH_NODES, JSON.stringify(nodes));
     localStorage.setItem(LOCAL_STORAGE_KEY_GRAPH_EDGES, JSON.stringify(edges));
   } catch {}
+}
+
+export async function syncGraphWithSupabase(currentEdges: GraphEdge[]): Promise<GraphEdge[]> {
+  if (!isSupabaseConfigured || !supabase) return currentEdges;
+
+  try {
+    const { data, error } = await supabase.from('research_relationships').select('*');
+    if (!error && data && data.length > 0) {
+      const dbEdges: GraphEdge[] = data.map((r: any) => ({
+        id: r.id,
+        source: r.source_id,
+        target: r.target_id,
+        relationship: r.relationship_type
+      }));
+
+      const edgeMap = new Map<string, GraphEdge>();
+      currentEdges.forEach(e => edgeMap.set(e.id, e));
+      dbEdges.forEach(e => edgeMap.set(e.id, e));
+      return Array.from(edgeMap.values());
+    }
+  } catch (err) {
+    console.warn('[ResearchGraph] Supabase relationship sync skipped:', err);
+  }
+  return currentEdges;
 }
 
 export function addLifecycleNodesToGraph(
@@ -113,5 +138,27 @@ export function addLifecycleNodesToGraph(
   const updatedEdges = [...edges, ...newEdges];
 
   saveStoredGraph(updatedNodes, updatedEdges);
+
+  // Sync relationships to Supabase asynchronously
+  if (isSupabaseConfigured && supabase) {
+    const relationshipsPayload = newEdges.map(edge => ({
+      source_type: 'node',
+      source_id: edge.source,
+      target_type: 'node',
+      target_id: edge.target,
+      relationship_type: edge.relationship,
+      description: `Generated edge between ${edge.source} and ${edge.target}`
+    }));
+
+    (async () => {
+      try {
+        const { error } = await supabase.from('research_relationships').insert(relationshipsPayload);
+        if (error) console.warn('[ResearchGraph] Failed to persist edges to Supabase:', error.message);
+      } catch (e: any) {
+        console.warn('[ResearchGraph] Error saving edges:', e);
+      }
+    })();
+  }
+
   return { nodes: updatedNodes, edges: updatedEdges };
 }

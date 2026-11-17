@@ -2,15 +2,17 @@ import React from 'react';
 import { ArrowRight, BookOpen, Target, Sparkles, CheckCircle2, Shield, Users, Award, Building2, Network, ArrowUpRight } from 'lucide-react';
 import { LifecycleBanner } from '../components/LifecycleBanner';
 import { LogoMark } from '../components/LogoMark';
-import { MOCK_CHALLENGES } from '../data/mockData';
+import { Challenge } from '../data/mockData';
 
 interface LandingViewProps {
+  challenges?: Challenge[];
   onExplore: () => void;
   onJoinCommunity: () => void;
   onSelectChallenge: (challengeId: string) => void;
 }
 
 export const LandingView: React.FC<LandingViewProps> = ({
+  challenges = [],
   onExplore,
   onJoinCommunity,
   onSelectChallenge
@@ -101,7 +103,7 @@ export const LandingView: React.FC<LandingViewProps> = ({
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {MOCK_CHALLENGES.slice(0, 3).map((challenge) => (
+          {challenges.slice(0, 3).map((challenge) => (
             <div
               key={challenge.id}
               onClick={() => onSelectChallenge(challenge.id)}

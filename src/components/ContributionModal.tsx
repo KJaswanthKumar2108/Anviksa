@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { X, Check, ArrowRight, ArrowLeft, Upload, Link as LinkIcon, FileText, Beaker, CheckCircle2, Save } from 'lucide-react';
-import { MOCK_CHALLENGES, MOCK_PAPERS } from '../data/mockData';
+import { X, Check, ArrowRight, ArrowLeft, Upload, Link as LinkIcon, FileText, Beaker, CheckCircle2, Save, Paperclip, Loader2 } from 'lucide-react';
+import { Paper, Challenge } from '../data/mockData';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
 
 interface ContributionModalProps {
   isOpen: boolean;
@@ -10,6 +11,8 @@ interface ContributionModalProps {
   initialDraft?: any;
   preselectedChallengeId?: string;
   preselectedPaperId?: string;
+  challenges?: Challenge[];
+  papers?: Paper[];
 }
 
 export const ContributionModal: React.FC<ContributionModalProps> = ({
@@ -19,7 +22,9 @@ export const ContributionModal: React.FC<ContributionModalProps> = ({
   onSaveDraft,
   initialDraft,
   preselectedChallengeId,
-  preselectedPaperId
+  preselectedPaperId,
+  challenges = [],
+  papers = []
 }) => {
   const [step, setStep] = useState(1);
   const [contributionType, setContributionType] = useState<'Methodology' | 'Dataset' | 'Code Implementation' | 'Replication Experiment' | 'Theoretical Extension'>('Methodology');
@@ -32,6 +37,10 @@ export const ContributionModal: React.FC<ContributionModalProps> = ({
   const [datasetUrl, setDatasetUrl] = useState('');
   const [expectedOutcome, setExpectedOutcome] = useState('');
   const [limitations, setLimitations] = useState('');
+  const [attachments, setAttachments] = useState<{ name: string; url: string; type: string }[]>([]);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -45,6 +54,7 @@ export const ContributionModal: React.FC<ContributionModalProps> = ({
       if (initialDraft.datasetUrl) setDatasetUrl(initialDraft.datasetUrl);
       if (initialDraft.expectedOutcome) setExpectedOutcome(initialDraft.expectedOutcome);
       if (initialDraft.limitations) setLimitations(initialDraft.limitations);
+      if (initialDraft.attachments) setAttachments(initialDraft.attachments);
     }
   }, [initialDraft, isOpen]);
 
@@ -77,6 +87,54 @@ export const ContributionModal: React.FC<ContributionModalProps> = ({
     if (step > 1) setStep(step - 1);
   };
 
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    setUploadError(null);
+    setIsUploading(true);
+
+    const file = files[0];
+    const sanitizedName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
+    const storagePath = `uploads/${Date.now()}_${sanitizedName}`;
+
+    try {
+      if (isSupabaseConfigured && supabase) {
+        const { error: uploadErr } = await supabase.storage
+          .from('research_files')
+          .upload(storagePath, file, { cacheControl: '3600', upsert: true });
+
+        if (uploadErr) throw uploadErr;
+
+        const { data: urlData } = supabase.storage
+          .from('research_files')
+          .getPublicUrl(storagePath);
+
+        const newAttachment = {
+          name: file.name,
+          url: urlData.publicUrl,
+          type: file.type || 'application/octet-stream'
+        };
+
+        setAttachments(prev => [...prev, newAttachment]);
+      } else {
+        // Fallback demo mock attachment
+        const mockAttachment = {
+          name: file.name,
+          url: URL.createObjectURL(file),
+          type: file.type || 'application/octet-stream'
+        };
+        setAttachments(prev => [...prev, mockAttachment]);
+      }
+    } catch (err: any) {
+      console.warn('Storage upload error:', err);
+      setUploadError(err.message || 'File upload failed');
+    } finally {
+      setIsUploading(false);
+      e.target.value = '';
+    }
+  };
+
   const handleSaveDraftClick = () => {
     const draftData = {
       type: contributionType,
@@ -89,6 +147,7 @@ export const ContributionModal: React.FC<ContributionModalProps> = ({
       datasetUrl,
       expectedOutcome,
       limitations,
+      attachments,
       status: 'Draft',
       updatedAt: new Date().toLocaleTimeString()
     };
@@ -114,7 +173,7 @@ export const ContributionModal: React.FC<ContributionModalProps> = ({
       type: contributionType,
       summary: summary || 'A novel memory-efficient algorithm for long-context sequences.',
       methodology: methodology || 'Custom Triton GPU kernel derivation.',
-      attachments: [],
+      attachments: attachments || [],
       codeUrl: codeUrl || 'https://github.com/openresearch/s2-chunked-kernel',
       datasetUrl: datasetUrl || undefined,
       expectedOutcome: expectedOutcome || '80% memory reduction in backward pass.',
@@ -277,7 +336,7 @@ export const ContributionModal: React.FC<ContributionModalProps> = ({
                       onChange={(e) => setSelectedChallengeId(e.target.value)}
                       className="w-full px-3 py-2 bg-[#FEFAE0] border border-[#DCD5BC] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#D4A373] text-[#342F27] cursor-pointer"
                     >
-                      {MOCK_CHALLENGES.map((c) => (
+                      {challenges.map((c) => (
                         <option key={c.id} value={c.id}>
                           {c.title} ({c.orgName})
                         </option>
@@ -291,7 +350,7 @@ export const ContributionModal: React.FC<ContributionModalProps> = ({
                       onChange={(e) => setSelectedPaperId(e.target.value)}
                       className="w-full px-3 py-2 bg-[#FEFAE0] border border-[#DCD5BC] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#D4A373] text-[#342F27] cursor-pointer"
                     >
-                      {MOCK_PAPERS.map((p) => (
+                      {papers.map((p) => (
                         <option key={p.id} value={p.id}>
                           {p.title} ({p.journal}, {p.year})
                         </option>
@@ -301,10 +360,55 @@ export const ContributionModal: React.FC<ContributionModalProps> = ({
                 </div>
               )}
 
-              {/* Step 5: Evidence Links & Attachments */}
+              {/* Step 5: Evidence Links & Direct Supabase Storage Attachments */}
               {step === 5 && (
-                <div className="space-y-3">
-                  <h4 className="text-sm font-bold text-[#342F27]">Code, Datasets & Evidence Links</h4>
+                <div className="space-y-4">
+                  <h4 className="text-sm font-bold text-[#342F27]">Code, Datasets & File Artifacts</h4>
+                  
+                  {/* Supabase Storage File Upload */}
+                  <div className="p-3.5 bg-[#CCD5AE]/30 border border-[#DCD5BC] rounded-xl space-y-2">
+                    <label className="block font-bold text-[#342F27]">Upload Artifacts to Supabase Storage (PDFs, Datasets, Specs)</label>
+                    <div className="flex items-center gap-2">
+                      <label className="px-3 py-1.5 bg-[#FEFAE0] hover:bg-[#E9EDC9] text-[#342F27] font-semibold rounded-lg border border-[#DCD5BC] transition-colors cursor-pointer inline-flex items-center gap-1.5 shadow-2xs">
+                        {isUploading ? <Loader2 className="w-4 h-4 animate-spin text-[#8B5E34]" /> : <Upload className="w-4 h-4 text-[#8B5E34]" />}
+                        <span>{isUploading ? 'Uploading...' : 'Choose File to Upload'}</span>
+                        <input
+                          type="file"
+                          onChange={handleFileUpload}
+                          disabled={isUploading}
+                          className="hidden"
+                        />
+                      </label>
+                      <span className="text-[11px] text-[#6B6255]">Files are stored in bucket `research_files`</span>
+                    </div>
+
+                    {uploadError && (
+                      <p className="text-[11px] text-[#B83A32]">{uploadError}</p>
+                    )}
+
+                    {/* Uploaded Files List */}
+                    {attachments.length > 0 && (
+                      <div className="space-y-1 pt-2">
+                        {attachments.map((att, idx) => (
+                          <div key={idx} className="flex items-center justify-between p-2 bg-[#FEFAE0] rounded-lg border border-[#DCD5BC] text-[11px]">
+                            <span className="flex items-center gap-1.5 font-medium text-[#342F27] truncate max-w-xs">
+                              <Paperclip className="w-3.5 h-3.5 text-[#8B5E34] shrink-0" />
+                              <span className="truncate">{att.name}</span>
+                            </span>
+                            <a
+                              href={att.url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-[#8B5E34] hover:underline font-semibold ml-2 shrink-0"
+                            >
+                              View / Download
+                            </a>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
                   <div>
                     <label className="block font-semibold text-[#342F27] mb-1">Code Repository URL (GitHub / GitLab)</label>
                     <input
@@ -382,6 +486,16 @@ export const ContributionModal: React.FC<ContributionModalProps> = ({
                       <span className="text-[10px] uppercase font-bold text-[#6B6255]">Expected Outcome</span>
                       <p className="text-[#6B6255]">{expectedOutcome || 'Not specified'}</p>
                     </div>
+                    {attachments.length > 0 && (
+                      <div>
+                        <span className="text-[10px] uppercase font-bold text-[#6B6255]">Uploaded Artifacts ({attachments.length})</span>
+                        <ul className="list-disc list-inside text-[#342F27]">
+                          {attachments.map((att, i) => (
+                            <li key={i}>{att.name}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}

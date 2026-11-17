@@ -14,6 +14,15 @@ export interface Paper {
   linkedChallengeIds: string[];
   pdfUrl?: string;
   readTime: string;
+  fulltextStatus?: 'unattempted' | 'metadata_only' | 'retrieving' | 'pdf_available' | 'html_available' | 'extracted' | 'restricted' | 'failed';
+  fulltextSourceType?: 'pdf' | 'html' | 'repository' | 'publisher' | null;
+  fulltextSourceUrl?: string | null;
+  accessStatus?: string;
+  license?: string | null;
+  extractionStatus?: 'pending' | 'success' | 'failed' | 'skipped';
+  documentChecksum?: string | null;
+  extractedAt?: string | null;
+  extractedSections?: Record<string, any>;
 }
 
 export interface Challenge {

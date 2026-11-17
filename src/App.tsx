@@ -54,8 +54,8 @@ export default function App() {
   };
 
   // Store & Supabase Hooks
-  const store = useResearchStore();
   const supabaseData = useSupabaseData();
+  const store = useResearchStore(supabaseData.currentUser);
 
   // Modals & Selection States
   const [selectedPaper, setSelectedPaper] = useState<Paper | null>(null);
@@ -172,7 +172,7 @@ export default function App() {
   };
 
   const handleCompletePeerReviewAndExperiment = (reviewData: any) => {
-    store.showToast(`Peer Review logged: Decision ${reviewData.decision} for proposal`, 'success');
+    store.recordPeerReviewAndExperiment(reviewData);
 
     if (reviewContribution) {
       const targetChallenge = store.challenges[0];
@@ -239,6 +239,7 @@ export default function App() {
   if (isLandingPage) {
     return (
       <LandingView
+        challenges={store.challenges}
         onExplore={() => { setIsLandingPage(false); setCurrentTab('home'); }}
         onJoinCommunity={() => { setIsLandingPage(false); setCurrentTab('community'); }}
         onSelectChallenge={(id) => {
@@ -309,6 +310,9 @@ export default function App() {
               onSelectChallenge={(c) => setSelectedChallenge(c)}
               onOpenContributionModal={() => handleOpenContributionModal()}
               onExecuteFullLifecycle={handleExecuteFullEndToEndLifecycle}
+              papers={store.papers}
+              challenges={store.challenges}
+              communityPosts={store.communityPosts}
               papersCount={store.papers.length}
               openChallengesCount={store.challenges.filter(c => c.status === 'Open').length}
               contributionsCount={store.contributions.length}
@@ -353,6 +357,7 @@ export default function App() {
 
           {currentTab === 'organizations' && (
             <OrganizationsView
+              organizations={store.organizations}
               onSelectChallenge={(cId) => {
                 setCurrentTab('challenges');
                 handleSelectChallengeById(cId);
@@ -362,6 +367,8 @@ export default function App() {
 
           {currentTab === 'ai-assistant' && (
             <AiAssistantView
+              papers={store.papers}
+              challenges={store.challenges}
               onPublishChallengeSuccess={(c) => {
                 store.createChallenge(c);
                 setCurrentTab('challenges');
@@ -370,7 +377,7 @@ export default function App() {
           )}
 
           {currentTab === 'community' && (
-            <CommunityView />
+            <CommunityView currentUser={supabaseData.currentUser} />
           )}
 
           {currentTab === 'my-contributions' && (
@@ -429,6 +436,8 @@ export default function App() {
         initialDraft={store.draftContribution}
         preselectedChallengeId={modalChallengeId}
         preselectedPaperId={modalPaperId}
+        challenges={store.challenges}
+        papers={store.papers}
       />
 
       <ChallengeModal
