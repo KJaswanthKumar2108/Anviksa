@@ -25,8 +25,10 @@ import {
   Binary,
   RefreshCw,
   ExternalLink,
-  Database
+  Database,
+  ShieldAlert
 } from 'lucide-react';
+import { CrossLiteratureValidationPanel } from '../components/CrossLiteratureValidationPanel';
 import { MOCK_PAPERS, MOCK_CHALLENGES, MOCK_CONTRIBUTORS, Paper, Challenge } from '../data/mockData';
 import { runAIEvaluationBenchmark, EvaluationReport } from '../utils/aiEvaluationBenchmark';
 
@@ -43,7 +45,12 @@ export const AiAssistantView: React.FC<AiAssistantViewProps> = ({
 }) => {
   const activePapers = papers.length > 0 ? papers : MOCK_PAPERS;
   const activeChallenges = challenges.length > 0 ? challenges : MOCK_CHALLENGES;
-  const [activeToolTab, setActiveToolTab] = useState<'analyzer' | 'compare' | 'drafter' | 'matcher' | 'benchmark'>('analyzer');
+  const [activeToolTab, setActiveToolTab] = useState<'analyzer' | 'compare' | 'drafter' | 'matcher' | 'benchmark' | 'validation'>('analyzer');
+  const [selectedValidationGap, setSelectedValidationGap] = useState<{ id?: string; title: string; desc: string }>({
+    id: '',
+    title: 'Linear Time Complexity O(N) Attention Bound Verification',
+    desc: 'Validating whether FlashAttention linear complexity claims generalize to non-causal bidirectional transformer contexts or if O(N^2) memory bottlenecks persist.'
+  });
 
   // AI Model Selection State
   const [selectedAiModel, setSelectedAiModel] = useState<string>('gemma-4-26b-a4b-it');
@@ -326,7 +333,8 @@ export const AiAssistantView: React.FC<AiAssistantViewProps> = ({
             { id: 'compare', label: '2. Comparative Cross-Analysis', icon: GitCompare },
             { id: 'drafter', label: '3. Challenge Draft Generator', icon: Target },
             { id: 'matcher', label: '4. Contributor Match Engine', icon: Users },
-            { id: 'benchmark', label: '5. AI Trust & Evaluation Suite', icon: BarChart2 }
+            { id: 'benchmark', label: '5. AI Trust & Evaluation Suite', icon: BarChart2 },
+            { id: 'validation', label: '6. Stage 4D Cross-Literature Validation', icon: ShieldAlert }
           ].map((tool) => {
             const Icon = tool.icon;
             return (
@@ -778,6 +786,23 @@ export const AiAssistantView: React.FC<AiAssistantViewProps> = ({
                             <span className="text-[#342F27]">{gap.suggestedExperimentalDirection}</span>
                           </div>
                         )}
+
+                        <div className="pt-2 border-t border-[#DCD5BC] flex justify-end">
+                          <button
+                            onClick={() => {
+                              setSelectedValidationGap({
+                                id: gap.id || 'gap-evaluation-candidate',
+                                title: gap.gapTitle,
+                                desc: gap.description
+                              });
+                              setActiveToolTab('validation');
+                            }}
+                            className="px-2.5 py-1 text-[10px] font-bold text-[#8B5E34] bg-[#FAEDCD] hover:bg-[#DCD5BC] border border-[#DCD5BC] rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
+                          >
+                            <ShieldAlert className="w-3 h-3 text-[#8B5E34]" />
+                            <span>Validate Against Literature (Stage 4D)</span>
+                          </button>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -1620,6 +1645,15 @@ export const AiAssistantView: React.FC<AiAssistantViewProps> = ({
             </div>
           )}
         </div>
+      )}
+
+      {/* TOOL 6: STAGE 4D CROSS-LITERATURE VALIDATION & CONTRADICTION DETECTION */}
+      {activeToolTab === 'validation' && (
+        <CrossLiteratureValidationPanel
+          gapId={selectedValidationGap.id}
+          gapTitle={selectedValidationGap.title}
+          gapDescription={selectedValidationGap.desc}
+        />
       )}
 
     </div>

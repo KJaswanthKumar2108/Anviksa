@@ -10,6 +10,8 @@ import { evidenceAnalysisService } from './server/evidenceAnalysisService.js';
 import { literatureDiscoveryService } from './server/literatureDiscoveryService.js';
 import { multiPaperIngestionService } from './server/multiPaperIngestionService.js';
 import { researchGapExtractionService } from './server/researchGapExtractionService.js';
+import { crossLiteratureValidationService } from './server/crossLiteratureValidationService.js';
+import { getSupabaseAdmin } from './src/lib/supabase.js';
 import type { ExtractedDocument } from './src/types/openalex.js';
 
 dotenv.config();
@@ -1132,6 +1134,202 @@ app.post('/api/research/gaps/extract-batch', async (req, res) => {
       error: err.message || 'Failed to execute batch research gap extraction.',
       code: err.code || 'BATCH_EXTRACTION_FAILED'
     });
+  }
+});
+
+/**
+ * POST /api/research/gaps/validate
+ * Stage 4D: Cross-Literature Validation & Contradiction Detection Engine.
+ * Evaluates candidate research gap against independently retrieved evidence,
+ * computes source independence, methodological comparability, bilateral contradictions,
+ * and deterministic provisional validation strength (S_val).
+ */
+app.post('/api/research/gaps/validate', async (req, res) => {
+  try {
+    const {
+      gapId,
+      discoveryBudget,
+      maxCandidateBudget,
+      modelIdentifier,
+      isLandmarkEvaluation,
+      landmarkJustification,
+      providedValidationCorpus
+    } = req.body;
+
+    if (!gapId || typeof gapId !== 'string') {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required parameter: gapId must be a valid research gap UUID.',
+        code: 'INVALID_GAP_ID'
+      });
+    }
+
+    const report = await crossLiteratureValidationService.validateCandidateGap({
+      gapId,
+      discoveryBudget,
+      maxCandidateBudget,
+      modelIdentifier,
+      isLandmarkEvaluation,
+      landmarkJustification,
+      providedValidationCorpus
+    });
+
+    return res.json({
+      success: true,
+      report
+    });
+  } catch (err: any) {
+    console.error('[API /api/research/gaps/validate error]:', err);
+    const statusCode = err.status || 500;
+    return res.status(statusCode).json({
+      success: false,
+      error: err.message || 'Cross-literature gap validation failed.',
+      code: err.code || 'VALIDATION_FAILED'
+    });
+  }
+});
+
+/**
+ * GET /api/research/gaps/:id/validations
+ * Stage 4D: Retrieves chronological validation run history for a research gap.
+ */
+app.get('/api/research/gaps/:id/validations', async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!id) {
+      return res.status(400).json({ success: false, error: 'Gap ID parameter required.' });
+    }
+
+    const admin = getSupabaseAdmin();
+    if (!admin) {
+      return res.status(503).json({ success: false, error: 'Database service unavailable.' });
+    }
+
+    const { data, error } = await admin
+      .from('research_gap_validations')
+      .select('*')
+      .eq('gap_id', id)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      return res.status(500).json({ success: false, error: error.message });
+    }
+
+    return res.json({
+      success: true,
+      gapId: id,
+      validations: data || []
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * GET /api/research/gaps/:id/relationships
+ * Stage 4D: Retrieves strongly typed bilateral relationships connected to a research gap.
+ */
+app.get('/api/research/gaps/:id/relationships', async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!id) {
+      return res.status(400).json({ success: false, error: 'Gap ID parameter required.' });
+    }
+
+    const admin = getSupabaseAdmin();
+    if (!admin) {
+      return res.status(503).json({ success: false, error: 'Database service unavailable.' });
+    }
+
+    const { data, error } = await admin
+      .from('research_gap_relationships')
+      .select('*')
+      .or(`source_gap_id.eq.${id},target_gap_id.eq.${id}`)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      return res.status(500).json({ success: false, error: error.message });
+    }
+
+    return res.json({
+      success: true,
+      gapId: id,
+      relationships: data || []
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * POST /api/research/gaps/:id/archive
+ * Stage 4D: Archives a research gap using the administrative archive_research_gap RPC.
+ */
+app.post('/api/research/gaps/:id/archive', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const archivalReason = req.body?.archivalReason || 'Archived via researcher action';
+
+    if (!id) {
+      return res.status(400).json({ success: false, error: 'Gap ID parameter required.' });
+    }
+
+    const admin = getSupabaseAdmin();
+    if (!admin) {
+      return res.status(503).json({ success: false, error: 'Database service unavailable.' });
+    }
+
+    const { data, error } = await admin.rpc('archive_research_gap', {
+      p_gap_id: id,
+      p_archival_reason: archivalReason
+    });
+
+    if (error) {
+      return res.status(400).json({ success: false, error: error.message });
+    }
+
+    return res.json({
+      success: true,
+      gapId: id,
+      archived: data
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * POST /api/research/gaps/:id/purge
+ * Stage 4D: Purges an archived research gap using purge_archived_research_gap RPC.
+ */
+app.post('/api/research/gaps/:id/purge', async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!id) {
+      return res.status(400).json({ success: false, error: 'Gap ID parameter required.' });
+    }
+
+    const admin = getSupabaseAdmin();
+    if (!admin) {
+      return res.status(503).json({ success: false, error: 'Database service unavailable.' });
+    }
+
+    const { data, error } = await admin.rpc('purge_archived_research_gap', {
+      p_gap_id: id,
+      p_purge_reason: req.body?.purgeReason || 'Administrative gap purge via API'
+    });
+
+    if (error) {
+      return res.status(400).json({ success: false, error: error.message });
+    }
+
+    return res.json({
+      success: true,
+      gapId: id,
+      purged: data
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
   }
 });
 
