@@ -83,45 +83,55 @@ graph TD
 
 ---
 
-### Sub-stage 4D: Cross-Literature Validation & Contradiction Detection
-- **Objective:** Validate candidate gaps across independent scholarly works, detect contradictory evidence under matched conditions, evaluate 5 explicit validation outcomes (`CONFIRMED_UNRESOLVED`, `PARTIALLY_ADDRESSED`, `ADDRESSED`, `CONTRADICTED`, `INSUFFICIENT_EVIDENCE`), and record transitions in `research_gap_audit_log`.
+### Sub-stage 4D: Cross-Literature Validation & Contradiction Detection *(ACCEPTED & IMPLEMENTED)*
+- **Objective:** Validate candidate gaps across independent scholarly works, detect contradictory evidence under matched conditions, evaluate 5 explicit validation outcomes (`CONFIRMED_UNRESOLVED`, `PARTIALLY_ADDRESSED`, `ADDRESSED`, `CONTRADICTED`, `INSUFFICIENT_EVIDENCE`), enforce composite foreign keys and partial unique indexes, and record transitions in `research_gap_audit_log`.
 - **Files & Modules:**
-  - `server/crossLiteratureValidator.ts`
-  - `server/contradictionDetector.ts`
+  - `server/crossLiteratureValidationService.ts`
+  - `server/methodologicalComparabilityEngine.ts`
+  - `server/contradictionDetectionService.ts`
+  - `server/provisionalValidationStrengthService.ts`
+  - `server/sourceIndependenceService.ts`
   - `server.ts`
-- **Database Changes:**
-  - Record validation audit trails in `public.research_gap_validations` and `public.research_gap_audit_log`.
-- **API Endpoints:**
-  - `POST /api/research/gaps/:id/validate` (triggers multi-paper cross-validation)
-  - `GET /api/research/gaps/:id/audit-trail` (fetches complete historical epistemic transitions)
-- **Deterministic Responsibilities:** Chronological sorting, independent author verification, literature coverage date recording, and state-machine transitions.
-- **AI Responsibilities:** Pairwise contradiction analysis, trade-off detection, and solution verification.
+- **Database Tables & Constraints:**
+  - `public.research_gap_validations`, `public.research_gap_relationships`, `public.research_gap_audit_log`.
+  - Composite FK `(gap_id, validation_run_id)` with `ON DELETE RESTRICT`.
+  - Four discrete partial unique indexes preventing nil UUIDs and duplicate relationships.
 - **Tests & Verification:**
-  - `tests/stage4d_cross_validation.test.ts` (evaluates FlashAttention vs FlashAttention-2 vs Mamba, and AlphaFold 2 vs ESMFold benchmark pairs).
-- **Dependencies:** Sub-stage 4C extraction.
+  - `tests/stage4d_validation_verification.ts` (56/56 passed with zero failures).
 
 ---
 
-### Sub-stage 4E: Opportunity Ranking, Hypothesis & Experiment Generation
-- **Objective:** Compute explainable multi-factor opportunity scores across 6 scientific dimensions ($S_{confidence}, S_{novelty}, S_{significance}, S_{feasibility}, S_{tractability}, S_{priority}$), and synthesize falsifiable hypotheses and experiment protocols.
+### Sub-stage 4D.1: Source Independence & Verification Integrity Hardening *(ACCEPTED & IMPLEMENTED)*
+- **Objective:** Implement 5-tier conservative institutional identity resolution hierarchy, curated versioned alias registry v1.0.0, author full given-name parsing preventing East Asian surname collisions, multi-affiliation support, and adversarial regression verification.
 - **Files & Modules:**
-  - `server/opportunityScorer.ts`
-  - `server/hypothesisSynthesisService.ts`
-  - `server.ts`
-- **Database Changes:**
-  - Tables: `public.research_hypotheses`, `public.research_experiments`.
-- **API Endpoints:**
-  - `POST /api/research/gaps/:id/synthesize-hypothesis`
-  - `GET /api/research/gaps/ranked`
-- **Deterministic Responsibilities:** Mathematical score computation, field-specific normalization, non-linear contradiction penalties, and input validation.
-- **AI Responsibilities:** Popperian falsifiable hypothesis synthesis (*"If [manipulation], then [observation] compared to [baseline], because [mechanism]"*).
+  - `server/sourceIndependenceService.ts`
+  - `tests/stage4d_1_adversarial_verification.ts`
 - **Tests & Verification:**
-  - `tests/stage4e_hypothesis_ranking.test.ts` (evaluates score consistency and 5-point falsifiability rubric).
-- **Dependencies:** Sub-stage 4D validation.
+  - 44/44 passed across all 17 adversarial categories. Total platform tally: 207 checks (205 tests + 2 build checks).
 
 ---
 
-### Sub-stage 4F: Research Gap Discovery Workbench & Integration
+### Sub-stage 4E: Opportunity Ranking, Hypothesis & Experiment Generation *(ARCHITECTURE DESIGN COMPLETE — IMPLEMENTATION PROHIBITED)*
+- **Objective:** Transform validated literature gaps into prioritized research opportunities, Popperian falsifiable hypotheses, reproducible experiment protocols, and resource-aware research plans.
+- **Architecture Specifications:**
+  - `docs/STAGE_4E_ARCHITECTURE.md`
+  - `docs/STAGE_4E_OPPORTUNITY_RANKING_METHODOLOGY.md`
+  - `docs/STAGE_4E_HYPOTHESIS_METHODOLOGY.md`
+  - `docs/STAGE_4E_EXPERIMENT_DESIGN_METHODOLOGY.md`
+  - `docs/STAGE_4E_DATA_AND_API_DESIGN.md`
+  - `docs/STAGE_4E_EVALUATION_FRAMEWORK.md`
+  - `docs/STAGE_4E_ACCEPTANCE_CRITERIA.md`
+- **Subsystems Designed:**
+  - *Subsystem A:* Opportunity Intelligence & 6-Dimension Ranking ($S_{confidence}, S_{novelty}, S_{significance}, S_{feasibility}, S_{tractability}, S_{priority}$) with non-compensatory gates.
+  - *Subsystem B:* Falsifiable Hypothesis Synthesis with 10-point rubric, operational variables, boundary conditions, and competing mechanism diversity.
+  - *Subsystem C:* Reproducible Experiment Protocol Design across 11 paradigms with verified published baselines and quantitative falsification thresholds.
+  - *Subsystem D:* Resource-Aware Research Planning modeling verified, declared, estimated, and unknown compute/data constraints.
+  - *Workflow:* Researcher Review, Revision & Approval lifecycle preserving immutable provenance and audit history.
+- **Status:** Architecture frozen and documented. Implementation strictly prohibited pending user authorization.
+
+---
+
+### Sub-stage 4F: Research Gap Discovery Workbench & Integration *(PLANNED — NOT IMPLEMENTED)*
 - **Objective:** Deliver the interactive frontend workbench in Anvīkṣā's beige/orange design aesthetic, featuring the multi-paper gap matrix, evidence inspection drawers, contradiction side-by-side comparators, and one-click challenge publishing.
 - **Files & Modules:**
   - `src/views/ResearchGapWorkbenchView.tsx`

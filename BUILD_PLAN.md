@@ -1,7 +1,7 @@
 # Anvīkṣā — Project Build Plan & Stage Status
 
-**Document Version:** 4.1.0-REVISED (Stage 4D Completed & Accepted)  
-**Status:** Stage 3 Completed & Accepted; Stage 4 Architecture Approved; Sub-stage 4A Accepted (with Non-Blocking Limitations); Sub-stage 4B Accepted (with Non-Blocking Limitations); Sub-stage 4C Accepted (with Non-Blocking Limitations); Sub-stage 4D Implemented & Accepted; Sub-stages 4E–4F Planned (Not Implemented); Stages 5–7 Planned  
+**Document Version:** 4.1.0-REVISED (Stage 4E Architecture Designed)  
+**Status:** Stage 3 Completed & Accepted; Stage 4 Architecture Approved; Sub-stage 4A Accepted (with Non-Blocking Limitations); Sub-stage 4B Accepted (with Non-Blocking Limitations); Sub-stage 4C Accepted (with Non-Blocking Limitations); Sub-stage 4D Implemented & Accepted; Sub-stage 4D.1 Hardened & Accepted; Sub-stage 4E Architecture Designed & Audited (Implementation Prohibited); Sub-stage 4F Planned (Not Implemented); Stages 5–7 Planned  
 
 ---
 
@@ -12,7 +12,7 @@
 | **1** | OpenAlex Integration & Architecture Audit | **COMPLETED & AUDITED** | OpenAlex search service, DOI resolution, bearer authentication, security audit. |
 | **2** | Open-Access Full-Text Retrieval & SSRF Defense | **COMPLETED & AUDITED** | Source-aware PDF/HTML retrieval, SSRF validation, IMRAD chunking, section extraction. |
 | **3** | Gemma 4 AI Analysis & Comparative Synthesis | **COMPLETED & ACCEPTED** | Gemma 4 MoE inference, multi-paper comparison, truthful model attribution, PostgreSQL provenance RPC, RLS regression. |
-| **4** | Research Gap Discovery & Validation Engine | **STAGE 4A, 4B, 4C & 4D ACCEPTED; 4E–4F PLANNED** | Stage 4 Architecture Approved; 4A Accepted with Non-Blocking Limitations; 4B Accepted with Non-Blocking Limitations; 4C Accepted with Non-Blocking Limitations; 4D Implemented & Accepted; 4E–4F Planned (Not Implemented). |
+| **4** | Research Gap Discovery & Validation Engine | **STAGE 4A–4D.1 ACCEPTED; 4E ARCHITECTURE DESIGNED; 4F PLANNED** | Stage 4 Architecture Approved; 4A Accepted with Non-Blocking Limitations; 4B Accepted with Non-Blocking Limitations; 4C Accepted with Non-Blocking Limitations; 4D/4D.1 Implemented & Accepted; 4E Architecture Designed & Audited (Implementation Prohibited); 4F Planned. |
 | **5** | Community Challenge & Proposal Workspace | *PLANNED* | Challenge publishing, proposal workflow, reviewer assignment, bounties. |
 | **6** | Experiment Trials & Peer Review Lifecycle | *PLANNED* | Trial logging, metrics reporting, peer review decisions, validation status transitions. |
 | **7** | Full Research Graph & Platform Productionization | *PLANNED* | Global research graph visualization, institutional dashboards, production deployment. |
@@ -72,11 +72,31 @@
   - Acceptance Verification: Passed 56/56 automated tests in `tests/stage4d_validation_verification.ts` with 0 failures, and 0 regressions across Stage 4A (28/28), 4B (37/37), and 4C (40/40).
   - Implementation Report: `docs/STAGE_4D_IMPLEMENTATION_REPORT.md`.
 
-- **Sub-stage 4E: Opportunity Ranking, Hypothesis & Experiment Generation** *(PLANNED — NOT IMPLEMENTED)*
-  - 6-dimension opportunity scoring ($S_{confidence}, S_{novelty}, S_{significance}, S_{feasibility}, S_{tractability}, S_{priority}$).
-  - Scores do not upgrade epistemic status; non-linear contradiction penalties applied.
-  - Popperian falsifiable hypothesis synthesis (*"If [manipulation], then [observation] compared to [baseline], because [mechanism]"*).
-  - Reproducible experiment protocol synthesis with failure criteria.
+- **Sub-stage 4D.1: Source Independence & Verification Integrity Hardening** *(IMPLEMENTED & ACCEPTED)*
+  - Institutional Identity Resolution Hierarchy: Implemented conservative 5-tier resolution (ROR ID direct match -> OpenAlex authoritative ID -> Versioned explicit alias registry v1.0.0 -> Conservative normalized-name comparison -> INDEPENDENCE_UNKNOWN fallback).
+  - Versioned Explicit Alias Registry (`INSTITUTION_ALIAS_REGISTRY_VERSION = '1.0.0'`): Pre-indexed canonical mappings for premier universities and labs (UC Berkeley, UCLA, MIT, Stanford, Oxford, Cambridge, CMU, UW, GWU, WashU, Princeton, Harvard, ETH Zurich, Toronto, Google Research, Microsoft Research, Meta AI, OpenAI).
+  - Institutional Non-Collision Guarantees: Provable isolation between homonymous or token-sharing institutions (`University of Washington` vs `George Washington University` vs `Washington University in St. Louis`; `UC Berkeley` vs `UCLA`).
+  - Author Identity Safeguards: Preserved full given-name keys in `parseAuthorName()` to prevent collisions on East Asian authors sharing common surnames (`Wang, Wei` vs `Wang, Wen` yields Jaccard 0.0).
+  - Affiliation Completeness & Metadata Conflict Detection: Missing affiliations safely fallback to `INDEPENDENCE_UNKNOWN`; conflicting name vs ROR ID pairs flag `institutionMetadataConflict: true` and block unverified independent status.
+  - Multi-Affiliation & Delimited Segment Support: Accurate resolution of multi-institution author lists and complex department/institute string formats.
+  - Verification Report Reconciled: Resolved reporting discrepancy in Stage 4D verification report (161 automated tests + 2 build/typecheck checks = 163 total distinct checks).
+  - Adversarial Verification: 44/44 tests passed in `tests/stage4d_1_adversarial_verification.ts` across all 17 adversarial categories with 0 regressions across Stage 4A (28/28), Stage 4B (37/37), Stage 4C (40/40), and Stage 4D (56/56). Total platform verification tally: 207 checks (205 tests + 2 build checks).
+  - Implementation Report: `docs/STAGE_4D_1_IMPLEMENTATION_REPORT.md`.
+
+- **Sub-stage 4E: Opportunity Ranking, Hypothesis & Experiment Generation** *(ARCHITECTURE REVISED & AUDITED — IMPLEMENTATION PROHIBITED)*
+  - Four Connected Subsystems: Subsystem A (Opportunity Intelligence & Ranking), Subsystem B (Falsifiable Hypothesis Synthesis), Subsystem C (Experiment Design & Protocol Synthesis), Subsystem D (Resource-Aware Research Planning).
+  - Revision 1 Decoupled Scoring: Separated Intrinsic Scientific Opportunity Value ($V_{scientific}$) from Researcher Execution Suitability ($E_{suitability}$), eliminating priority circularity. Actionable priority ($P_{actionable}$) maps to a 2D Strategic Research Decision Matrix. Researcher compute constraints never downgrade intrinsic scientific value.
+  - Strict Eligibility Waterfall: Non-compensatory eligibility gates derived from Stage 4D outcomes (`CONFIRMED_UNRESOLVED` eligible; `PARTIALLY_ADDRESSED` requires explicit residual unresolved scope; `ADDRESSED`, `CONTRADICTED`, and `INSUFFICIENT_EVIDENCE` disqualified from active ranking).
+  - Structured Falsifiable Hypotheses: 27-field typed schema with operational independent, dependent, and control variables, directional predictions, explicit boundary conditions, and statistical null/alternative formulations where appropriate. Supports 6 methodological paradigms.
+  - 10-Point Falsifiability & Quality Rubric: Automated dual-phase verification (deterministic check + AI logical audit) rejecting tautological statements and ungrounded causal claims.
+  - Reproducible Experiment Protocols: 11 experimental design paradigms (RCT, comparative benchmarks, ablations, simulations, proofs, complexity, etc.) with verified published literature baselines (zero fabricated measurements), quantitative falsification thresholds, power analysis, and threats to validity.
+  - Evaluation Framework: Formalized all 6 metrics across 10 architectural criteria ($HFI \ge 90\%$, $BAR = 100\%$ boolean audit, $\tau_{rank} \ge 0.70$, $UCR \le 5\%$, $PCI \ge 8.5/10$, $RUS \ge 4.2/5$). Replaced Cohen's kappa with Fleiss' kappa ($\ge 0.75$), Krippendorff's alpha ($\ge 0.80$), and ICC ($\ge 0.75$) with pre-evaluation pilot calibration ($N=20$).
+  - Temporal Leakage Guards: Retrospective back-testing freezes literature at $T_0$, strictly blocking post-$T_0$ citations and publications from input discovery features.
+  - Model Adapter Verification: Verified repository multi-tier fallback chain (primary `gemma-4-26b-a4b-it`, secondary `gemma-4-31b-it`, fallback `gemini-3-flash-preview` / `gemini-2.5-flash`).
+  - Provenance & Staleness Invariants: Re-validation in Stage 4D automatically marks dependent opportunities/hypotheses as stale (`is_stale = true`). Immutable revision tracking preserves human and AI history.
+  - Human Review Lifecycle: Explicit researcher review states (`RESEARCHER_APPROVED` != executed; `READY_FOR_EXECUTION` != executed).
+  - Specifications: `docs/STAGE_4E_ARCHITECTURE.md`, `docs/STAGE_4E_OPPORTUNITY_RANKING_METHODOLOGY.md`, `docs/STAGE_4E_HYPOTHESIS_METHODOLOGY.md`, `docs/STAGE_4E_EXPERIMENT_DESIGN_METHODOLOGY.md`, `docs/STAGE_4E_DATA_AND_API_DESIGN.md`, `docs/STAGE_4E_EVALUATION_FRAMEWORK.md`, `docs/STAGE_4E_ACCEPTANCE_CRITERIA.md`, `docs/STAGE_4E_ARCHITECTURE_REVISION_1_REPORT.md`.
+  - Implementation Status: Strictly prohibited. Zero code changes, zero database mutations, zero Stage 4F implementation.
 
 - **Sub-stage 4F: Research Gap Discovery Workbench & UI Integration** *(PLANNED — NOT IMPLEMENTED)*
   - Dedicated Workbench view (`ResearchGapWorkbenchView.tsx`) in beige/orange palette (`#FAEDCD`, `#CCD5AE`, `#8B5E34`).

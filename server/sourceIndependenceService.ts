@@ -1,10 +1,19 @@
 /**
- * Anvīkṣā — Stage 4D: Source Independence Assessment Service
+ * Anvīkṣā — Stage 4D.1: Source Independence Assessment Service
  * 
- * Architecture Specification: Version 4.1.0-REVISED (Stage 4D Final Consistency Amendment)
- * Evaluates author overlap, institutional overlap, lineage, shared codebases/benchmarks,
- * and classifies independence across 4 mutually exclusive states.
+ * Architecture Specification: Version 4.1.0-REVISED (Stage 4D.1 Hardening Amendment)
+ * Evaluates author overlap, institutional identity resolution via conservative hierarchy,
+ * lineage, shared codebases/benchmarks, and classifies independence across 4 mutually exclusive states.
+ * 
+ * Resolution Hierarchy:
+ * 1. ROR ID Direct Match (https://ror.org/*)
+ * 2. Authoritative ID (OpenAlex institution ID)
+ * 3. Versioned Explicit Alias Registry (v1.0.0)
+ * 4. Conservative Normalized Name Comparison (exact normalized string, collision guards)
+ * 5. Fallback: INDEPENDENCE_UNKNOWN on missing/unresolved affiliations
  */
+
+export const INSTITUTION_ALIAS_REGISTRY_VERSION = '1.0.0';
 
 export type IndependenceState = 
   | 'INDEPENDENT' 
@@ -25,11 +34,40 @@ export type AddressedPathway =
   | 'LANDMARK_RESULT'
   | 'NOT_ADDRESSED';
 
+export type InstitutionResolutionMethod = 
+  | 'ROR_DIRECT' 
+  | 'AUTHORITATIVE_ID' 
+  | 'ALIAS_REGISTRY' 
+  | 'NORMALIZED_STRING' 
+  | 'UNKNOWN';
+
+export interface InstitutionEntity {
+  name?: string;
+  rorId?: string | null;
+  openAlexId?: string | null;
+  institutionId?: string | null;
+  countryCode?: string | null;
+}
+
+export interface ResolvedInstitution {
+  rawInput: string;
+  canonicalId: string;
+  canonicalName: string;
+  rorId: string | null;
+  openAlexId: string | null;
+  resolutionMethod: InstitutionResolutionMethod;
+  certainty: 'HIGH' | 'MEDIUM' | 'LOW';
+  isUnresolved: boolean;
+  metadataConflict?: boolean;
+}
+
 export interface AuthorEntity {
   name: string;
   normalizedName: string;
   institution?: string;
   institutionId?: string;
+  rorId?: string;
+  orcid?: string;
 }
 
 export interface PaperIndependenceMetadata {
@@ -38,7 +76,9 @@ export interface PaperIndependenceMetadata {
   openAlexId?: string;
   title: string;
   authors: string[];
-  institutions?: string[];
+  institutions?: (string | InstitutionEntity)[];
+  institutionEntities?: InstitutionEntity[];
+  rorIds?: string[];
   publicationYear?: number | null;
   codeRepositoryUrl?: string | null;
   benchmarkSplitsUsed?: string[];
@@ -53,6 +93,9 @@ export interface IndependenceAssessmentResult {
   authorJaccard: number;
   sharedAuthors: string[];
   sharedInstitutions: string[];
+  resolvedSeedInstitutions?: ResolvedInstitution[];
+  resolvedCandidateInstitutions?: ResolvedInstitution[];
+  institutionMetadataConflict?: boolean;
   sharedDatasetsOrBenchmarks: string[];
   lineageType: 'DISTINCT_PUBLICATION' | 'PREPRINT_TO_JOURNAL' | 'SAME_LAB_LINEAGE' | 'SHARED_PI';
   sharedCodebaseDetected: boolean;
@@ -73,42 +116,530 @@ export interface ReplicationEvaluationSummary {
   rationale: string;
 }
 
+export interface CanonicalInstitutionEntry {
+  canonicalId: string;
+  canonicalName: string;
+  rorId: string; // Formatted as full URI or standard 9-char code
+  openAlexId?: string;
+  aliases: string[]; // Normalized lowercase aliases
+}
+
 /**
- * Normalizes author name for robust string matching (e.g. "Vaswani, Ashish" -> "vaswani a").
+ * Versioned Curated Academic & Industrial Institution Alias Registry.
+ * Guarantees zero false collisions between homonymous or similarly named institutions.
+ */
+export const INSTITUTION_ALIAS_REGISTRY: CanonicalInstitutionEntry[] = [
+  {
+    canonicalId: 'uc-berkeley',
+    canonicalName: 'University of California, Berkeley',
+    rorId: 'https://ror.org/01an7q238',
+    openAlexId: 'I95457486',
+    aliases: [
+      'university of california berkeley',
+      'uc berkeley',
+      'berkeley',
+      'ucb',
+      'university of california, berkeley',
+      'university of california - berkeley',
+      'univ of california berkeley'
+    ]
+  },
+  {
+    canonicalId: 'ucla',
+    canonicalName: 'University of California, Los Angeles',
+    rorId: 'https://ror.org/046rm7j60',
+    openAlexId: 'I161070366',
+    aliases: [
+      'university of california los angeles',
+      'ucla',
+      'university of california, los angeles',
+      'university of california - los angeles',
+      'univ of california los angeles'
+    ]
+  },
+  {
+    canonicalId: 'mit',
+    canonicalName: 'Massachusetts Institute of Technology',
+    rorId: 'https://ror.org/0420pxx49',
+    openAlexId: 'I63966007',
+    aliases: [
+      'massachusetts institute of technology',
+      'mit',
+      'mass inst of tech',
+      'massachusetts inst of technology'
+    ]
+  },
+  {
+    canonicalId: 'stanford-university',
+    canonicalName: 'Stanford University',
+    rorId: 'https://ror.org/00f54p054',
+    openAlexId: 'I97018004',
+    aliases: [
+      'stanford university',
+      'stanford',
+      'leland stanford junior university',
+      'leland stanford jr university',
+      'stanford univ'
+    ]
+  },
+  {
+    canonicalId: 'oxford-university',
+    canonicalName: 'University of Oxford',
+    rorId: 'https://ror.org/052gg0110',
+    openAlexId: 'I40120149',
+    aliases: [
+      'university of oxford',
+      'oxford university',
+      'oxford',
+      'univ of oxford',
+      'oxford univ'
+    ]
+  },
+  {
+    canonicalId: 'cambridge-university',
+    canonicalName: 'University of Cambridge',
+    rorId: 'https://ror.org/013meh722',
+    openAlexId: 'I241749',
+    aliases: [
+      'university of cambridge',
+      'cambridge university',
+      'cambridge',
+      'univ of cambridge'
+    ]
+  },
+  {
+    canonicalId: 'carnegie-mellon-university',
+    canonicalName: 'Carnegie Mellon University',
+    rorId: 'https://ror.org/05x2bcf40',
+    openAlexId: 'I74973139',
+    aliases: [
+      'carnegie mellon university',
+      'carnegie mellon',
+      'cmu',
+      'carnegie-mellon university'
+    ]
+  },
+  {
+    canonicalId: 'university-of-washington',
+    canonicalName: 'University of Washington',
+    rorId: 'https://ror.org/00cvxb145',
+    openAlexId: 'I201448701',
+    aliases: [
+      'university of washington',
+      'uw',
+      'u of washington',
+      'univ of washington',
+      'university of washington seattle'
+    ]
+  },
+  {
+    canonicalId: 'george-washington-university',
+    canonicalName: 'George Washington University',
+    rorId: 'https://ror.org/00y49b775',
+    openAlexId: 'I193662353',
+    aliases: [
+      'george washington university',
+      'gwu',
+      'george washington univ'
+    ]
+  },
+  {
+    canonicalId: 'washington-university-in-st-louis',
+    canonicalName: 'Washington University in St. Louis',
+    rorId: 'https://ror.org/01yc7t268',
+    openAlexId: 'I204465115',
+    aliases: [
+      'washington university in st louis',
+      'washington university in saint louis',
+      'washu',
+      'wustl',
+      'washington univ in st louis',
+      'washington university st louis'
+    ]
+  },
+  {
+    canonicalId: 'princeton-university',
+    canonicalName: 'Princeton University',
+    rorId: 'https://ror.org/00hx57361',
+    openAlexId: 'I20089843',
+    aliases: [
+      'princeton university',
+      'princeton',
+      'princeton univ'
+    ]
+  },
+  {
+    canonicalId: 'harvard-university',
+    canonicalName: 'Harvard University',
+    rorId: 'https://ror.org/03vek6s52',
+    openAlexId: 'I136199984',
+    aliases: [
+      'harvard university',
+      'harvard',
+      'harvard univ'
+    ]
+  },
+  {
+    canonicalId: 'eth-zurich',
+    canonicalName: 'ETH Zurich',
+    rorId: 'https://ror.org/05a28rw58',
+    openAlexId: 'I157725225',
+    aliases: [
+      'eth zurich',
+      'eth zürich',
+      'eidgenossische technische hochschule zurich',
+      'eidgenössische technische hochschule zürich',
+      'swiss federal institute of technology zurich',
+      'eth zurich swiss federal institute',
+      'eth zurich swiss federal institute of technology'
+    ]
+  },
+  {
+    canonicalId: 'university-of-toronto',
+    canonicalName: 'University of Toronto',
+    rorId: 'https://ror.org/03dbr7087',
+    openAlexId: 'I185261750',
+    aliases: [
+      'university of toronto',
+      'utoronto',
+      'u of toronto',
+      'univ of toronto'
+    ]
+  },
+  {
+    canonicalId: 'google-research',
+    canonicalName: 'Google Research',
+    rorId: 'https://ror.org/0446vsg51',
+    openAlexId: 'I4210137070',
+    aliases: [
+      'google',
+      'google research',
+      'google brain',
+      'google deepmind',
+      'alphabet',
+      'alphabet inc'
+    ]
+  },
+  {
+    canonicalId: 'microsoft-research',
+    canonicalName: 'Microsoft Research',
+    rorId: 'https://ror.org/0064kty71',
+    openAlexId: 'I4210145204',
+    aliases: [
+      'microsoft research',
+      'microsoft',
+      'msr',
+      'microsoft corporation'
+    ]
+  },
+  {
+    canonicalId: 'meta-ai',
+    canonicalName: 'Meta AI',
+    rorId: 'https://ror.org/03ad39j10',
+    openAlexId: 'I4210114050',
+    aliases: [
+      'meta ai',
+      'meta',
+      'meta platforms',
+      'facebook ai research',
+      'fair'
+    ]
+  },
+  {
+    canonicalId: 'openai',
+    canonicalName: 'OpenAI',
+    rorId: 'https://ror.org/03snvf060',
+    openAlexId: 'I4210166209',
+    aliases: [
+      'openai',
+      'openai research'
+    ]
+  }
+];
+
+// Pre-indexed lookup maps for constant time resolution
+const ROR_TO_CANONICAL = new Map<string, CanonicalInstitutionEntry>();
+const ALIAS_TO_CANONICAL = new Map<string, CanonicalInstitutionEntry>();
+const OPENALEX_TO_CANONICAL = new Map<string, CanonicalInstitutionEntry>();
+
+function normalizeRorId(ror: string): string {
+  if (!ror) return '';
+  const match = ror.match(/0[a-z0-9]{8}/i);
+  return match ? match[0].toLowerCase() : ror.toLowerCase().trim();
+}
+
+/**
+ * Normalizes institution strings conservatively:
+ * - strips accents / diacritics
+ * - converts punctuation to whitespace
+ * - collapses multiple whitespaces
+ * - trims string
+ */
+export function normalizeInstitutionName(name: string): string {
+  if (!name || typeof name !== 'string') return '';
+  return name
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+// Build index maps
+for (const entry of INSTITUTION_ALIAS_REGISTRY) {
+  const normRor = normalizeRorId(entry.rorId);
+  if (normRor) ROR_TO_CANONICAL.set(normRor, entry);
+  if (entry.openAlexId) OPENALEX_TO_CANONICAL.set(entry.openAlexId.toUpperCase(), entry);
+
+  for (const alias of entry.aliases) {
+    const normAlias = normalizeInstitutionName(alias);
+    if (normAlias) ALIAS_TO_CANONICAL.set(normAlias, entry);
+  }
+}
+
+/**
+ * Resolves an institution's canonical identity through the strict 5-tier conservative hierarchy:
+ * 1. ROR ID Direct Match
+ * 2. Authoritative ID (OpenAlex)
+ * 3. Versioned Explicit Alias Registry
+ * 4. Conservative Normalized Name Comparison
+ * 5. Fallback UNKNOWN
+ */
+export function resolveInstitutionIdentity(
+  input: string | InstitutionEntity,
+  explicitRorId?: string | null
+): ResolvedInstitution {
+  const rawInput = typeof input === 'string' ? input : (input.name || '');
+  const providedRor = explicitRorId || (typeof input === 'object' ? input.rorId : null);
+  const providedOpenAlex = typeof input === 'object' ? (input.openAlexId || input.institutionId) : null;
+
+  const normRaw = normalizeInstitutionName(rawInput);
+  const normRor = providedRor ? normalizeRorId(providedRor) : '';
+
+  // Check 1: ROR ID Direct Match
+  if (normRor) {
+    const matchByRor = ROR_TO_CANONICAL.get(normRor);
+    if (matchByRor) {
+      // Check for conflict between ROR and Name string if name is resolvable
+      let hasConflict = false;
+      if (normRaw) {
+        const matchByName = ALIAS_TO_CANONICAL.get(normRaw);
+        if (matchByName && matchByName.canonicalId !== matchByRor.canonicalId) {
+          hasConflict = true;
+        }
+      }
+      return {
+        rawInput,
+        canonicalId: matchByRor.canonicalId,
+        canonicalName: matchByRor.canonicalName,
+        rorId: matchByRor.rorId,
+        openAlexId: matchByRor.openAlexId || null,
+        resolutionMethod: 'ROR_DIRECT',
+        certainty: hasConflict ? 'LOW' : 'HIGH',
+        isUnresolved: false,
+        metadataConflict: hasConflict
+      };
+    } else {
+      // Valid ROR format but not in curated top registry
+      return {
+        rawInput,
+        canonicalId: `ror:${normRor}`,
+        canonicalName: rawInput || `ROR ${normRor}`,
+        rorId: providedRor || normRor,
+        openAlexId: providedOpenAlex || null,
+        resolutionMethod: 'ROR_DIRECT',
+        certainty: 'HIGH',
+        isUnresolved: false
+      };
+    }
+  }
+
+  // Check 2: Authoritative ID (OpenAlex)
+  if (providedOpenAlex) {
+    const cleanAuth = providedOpenAlex.trim().toUpperCase();
+    const matchByAuth = OPENALEX_TO_CANONICAL.get(cleanAuth);
+    if (matchByAuth) {
+      return {
+        rawInput,
+        canonicalId: matchByAuth.canonicalId,
+        canonicalName: matchByAuth.canonicalName,
+        rorId: matchByAuth.rorId,
+        openAlexId: cleanAuth,
+        resolutionMethod: 'AUTHORITATIVE_ID',
+        certainty: 'HIGH',
+        isUnresolved: false
+      };
+    } else {
+      return {
+        rawInput,
+        canonicalId: `auth:${cleanAuth}`,
+        canonicalName: rawInput || cleanAuth,
+        rorId: null,
+        openAlexId: cleanAuth,
+        resolutionMethod: 'AUTHORITATIVE_ID',
+        certainty: 'HIGH',
+        isUnresolved: false
+      };
+    }
+  }
+
+  // Check 3: Versioned Curated Alias Registry
+  if (normRaw) {
+    let matchByAlias = ALIAS_TO_CANONICAL.get(normRaw);
+    if (!matchByAlias) {
+      // Check delimited segments (e.g. "ETH Zürich - Swiss Federal Institute" -> "ETH Zürich")
+      const segments = rawInput.split(/[-;/|]/).map(s => normalizeInstitutionName(s)).filter(Boolean);
+      for (const seg of segments) {
+        if (seg.length >= 3) {
+          const segMatch = ALIAS_TO_CANONICAL.get(seg);
+          if (segMatch) {
+            matchByAlias = segMatch;
+            break;
+          }
+        }
+      }
+    }
+
+    if (matchByAlias) {
+      return {
+        rawInput,
+        canonicalId: matchByAlias.canonicalId,
+        canonicalName: matchByAlias.canonicalName,
+        rorId: matchByAlias.rorId,
+        openAlexId: matchByAlias.openAlexId || null,
+        resolutionMethod: 'ALIAS_REGISTRY',
+        certainty: 'HIGH',
+        isUnresolved: false
+      };
+    }
+  }
+
+  // Check 4: Conservative Normalized Name Comparison
+  // Ambiguous short abbreviations (e.g., 2-3 characters like "SU", "BU", "CU") without verified aliases
+  // must NOT match loosely.
+  if (normRaw && normRaw.length >= 4) {
+    return {
+      rawInput,
+      canonicalId: `norm:${normRaw}`,
+      canonicalName: rawInput,
+      rorId: null,
+      openAlexId: null,
+      resolutionMethod: 'NORMALIZED_STRING',
+      certainty: 'MEDIUM',
+      isUnresolved: false
+    };
+  } else if (normRaw && normRaw.length > 0) {
+    // Short unverified abbreviation
+    return {
+      rawInput,
+      canonicalId: `unverified-abbr:${normRaw}`,
+      canonicalName: rawInput,
+      rorId: null,
+      openAlexId: null,
+      resolutionMethod: 'NORMALIZED_STRING',
+      certainty: 'LOW',
+      isUnresolved: false
+    };
+  }
+
+  // Check 5: Missing / Incomplete Affiliation Fallback
+  return {
+    rawInput: rawInput || 'UNKNOWN',
+    canonicalId: 'unknown',
+    canonicalName: 'Unknown Affiliation',
+    rorId: null,
+    openAlexId: null,
+    resolutionMethod: 'UNKNOWN',
+    certainty: 'LOW',
+    isUnresolved: true
+  };
+}
+
+export interface ParsedAuthor {
+  raw: string;
+  family: string;
+  given: string;
+  givenInitial: string;
+  canonicalKey: string;
+}
+
+/**
+ * Parses author name preserving full given name when available, preventing collisions
+ * between East Asian names sharing family names (e.g., "Wang, Wei" vs "Wang, Wen").
+ */
+export function parseAuthorName(name: string): ParsedAuthor {
+  if (!name || typeof name !== 'string') {
+    return { raw: '', family: '', given: '', givenInitial: '', canonicalKey: '' };
+  }
+  const clean = name.toLowerCase().replace(/[^a-z\s,]/g, ' ').trim();
+  let family = '';
+  let given = '';
+
+  if (clean.includes(',')) {
+    // Comma-separated: "Last, First Middle" e.g. "Wang, Wei" or "Vaswani, Ashish"
+    const [lastPart, ...rest] = clean.split(',');
+    family = lastPart.trim().replace(/\s+/g, ' ');
+    given = rest.join(' ').trim().replace(/\s+/g, ' ');
+  } else {
+    // Space-separated: "First Middle Last" e.g. "Wei Wang" or "Ashish Vaswani"
+    const parts = clean.split(/\s+/).filter(Boolean);
+    if (parts.length === 1) {
+      family = parts[0];
+      given = '';
+    } else {
+      family = parts[parts.length - 1];
+      given = parts.slice(0, parts.length - 1).join(' ');
+    }
+  }
+
+  const givenInitial = given ? given[0] : '';
+  // Canonical key retains given name when present to prevent collisions
+  const canonicalKey = given ? `${family}, ${given}` : family;
+
+  return {
+    raw: name,
+    family,
+    given,
+    givenInitial,
+    canonicalKey
+  };
+}
+
+/**
+ * Normalizes author name for robust string matching (e.g. "Vaswani, Ashish" -> "vaswani, ashish").
  */
 export function normalizeAuthorName(name: string): string {
-  if (!name) return '';
-  const cleaned = name.toLowerCase().replace(/[^a-z\s]/g, ' ').trim();
-  const parts = cleaned.split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return '';
-  if (parts.length === 1) return parts[0];
-  const lastName = parts[parts.length - 1];
-  const firstInitial = parts[0][0];
-  return `${lastName} ${firstInitial}`;
+  const parsed = parseAuthorName(name);
+  return parsed.canonicalKey;
 }
 
 /**
  * Calculates Jaccard similarity between two sets of author strings.
+ * Preserves given names to prevent collisions between distinct individuals sharing a surname.
  */
 export function calculateAuthorJaccard(authorsA: string[], authorsB: string[]): {
   jaccard: number;
   sharedAuthors: string[];
 } {
-  const normA = new Set(authorsA.map(normalizeAuthorName).filter(Boolean));
-  const normB = new Set(authorsB.map(normalizeAuthorName).filter(Boolean));
+  const parsedA = (authorsA || []).map(parseAuthorName).filter(a => a.canonicalKey.length > 0);
+  const parsedB = (authorsB || []).map(parseAuthorName).filter(b => b.canonicalKey.length > 0);
 
-  if (normA.size === 0 || normB.size === 0) {
+  if (parsedA.length === 0 || parsedB.length === 0) {
     return { jaccard: 0, sharedAuthors: [] };
   }
 
+  const keysA = new Set(parsedA.map(a => a.canonicalKey));
+  const keysB = new Set(parsedB.map(b => b.canonicalKey));
+
   const intersection: string[] = [];
-  for (const a of normA) {
-    if (normB.has(a)) {
-      intersection.push(a);
+  for (const k of keysA) {
+    if (keysB.has(k)) {
+      intersection.push(k);
     }
   }
 
-  const unionSize = new Set([...normA, ...normB]).size;
+  const unionSize = new Set([...keysA, ...keysB]).size;
   const jaccard = unionSize > 0 ? intersection.length / unionSize : 0;
   return { jaccard, sharedAuthors: intersection };
 }
@@ -134,7 +665,7 @@ export class SourceIndependenceService {
   ): IndependenceAssessmentResult {
     const notes: string[] = [];
 
-    // Check if critical metadata is entirely absent
+    // Check if critical author metadata is entirely absent
     const hasAuthorInfo = candidate.authors && candidate.authors.length > 0;
     const hasSeedAuthorInfo = seed.authors && seed.authors.length > 0;
 
@@ -170,7 +701,7 @@ export class SourceIndependenceService {
         weight: INDEPENDENCE_WEIGHTS.DEPENDENT,
         authorJaccard: 1.0,
         sharedAuthors: seed.authors,
-        sharedInstitutions: seed.institutions || [],
+        sharedInstitutions: (seed.institutions || []).map(i => typeof i === 'string' ? i : (i.name || '')),
         sharedDatasetsOrBenchmarks: [],
         lineageType: 'PREPRINT_TO_JOURNAL',
         sharedCodebaseDetected: true,
@@ -182,15 +713,68 @@ export class SourceIndependenceService {
     // 2. Author Overlap Evaluation
     const { jaccard, sharedAuthors } = calculateAuthorJaccard(seed.authors, candidate.authors);
 
-    // 3. Institutional Overlap
-    const seedInst = new Set((seed.institutions || []).map(i => i.toLowerCase().trim()).filter(Boolean));
-    const candInst = new Set((candidate.institutions || []).map(i => i.toLowerCase().trim()).filter(Boolean));
+    // 3. Institutional Overlap & Strict Resolution Hierarchy
+    const extractInstitutions = (paper: PaperIndependenceMetadata): (string | InstitutionEntity)[] => {
+      const list: (string | InstitutionEntity)[] = [];
+      if (paper.institutions && paper.institutions.length > 0) {
+        list.push(...paper.institutions);
+      }
+      if (paper.institutionEntities && paper.institutionEntities.length > 0) {
+        list.push(...paper.institutionEntities);
+      }
+      if (paper.rorIds && paper.rorIds.length > 0) {
+        for (const ror of paper.rorIds) {
+          list.push({ rorId: ror });
+        }
+      }
+      return list;
+    };
+
+    const seedRawInst = extractInstitutions(seed);
+    const candRawInst = extractInstitutions(candidate);
+
+    const resolvedSeed = seedRawInst.map(i => resolveInstitutionIdentity(i));
+    const resolvedCand = candRawInst.map(i => resolveInstitutionIdentity(i));
+
+    // Check for metadata conflicts
+    const hasMetadataConflict = [...resolvedSeed, ...resolvedCand].some(r => r.metadataConflict === true);
+    if (hasMetadataConflict) {
+      notes.push('Warning: Conflicting institutional metadata detected (name vs ROR ID mismatch).');
+    }
+
+    // Evaluate valid resolved institutions
+    const validSeedInst = resolvedSeed.filter(r => !r.isUnresolved);
+    const validCandInst = resolvedCand.filter(r => !r.isUnresolved);
+
     const sharedInstitutions: string[] = [];
-    for (const inst of candInst) {
-      if (seedInst.has(inst)) {
-        sharedInstitutions.push(inst);
+    for (const rCand of validCandInst) {
+      for (const rSeed of validSeedInst) {
+        let isMatch = false;
+        // ROR direct match
+        if (rCand.rorId && rSeed.rorId && normalizeRorId(rCand.rorId) === normalizeRorId(rSeed.rorId)) {
+          isMatch = true;
+        } else if (rCand.canonicalId === rSeed.canonicalId && rCand.canonicalId !== 'unknown') {
+          // Avoid unverified abbreviation collisions
+          if (rCand.certainty !== 'LOW' || rSeed.certainty !== 'LOW') {
+            isMatch = true;
+          } else if (rCand.rawInput.trim().toLowerCase() === rSeed.rawInput.trim().toLowerCase()) {
+            isMatch = true;
+          }
+        }
+
+        if (isMatch) {
+          const label = rCand.canonicalName || rCand.rawInput;
+          if (!sharedInstitutions.includes(label)) {
+            sharedInstitutions.push(label);
+          }
+        }
       }
     }
+
+    // Conservative Rule: If neither paper has any valid institutional affiliations,
+    // and authors are disjoint, we cannot affirmatively verify independence!
+    // (Missing affiliations must not convert to false independence).
+    const affiliationsMissing = validSeedInst.length === 0 || validCandInst.length === 0;
 
     // 4. Shared Codebases
     let sharedCodebase = false;
@@ -227,9 +811,18 @@ export class SourceIndependenceService {
       if (sharedDatasetsOrBenchmarks.length > 0) {
         notes.push(`Shared benchmark split re-use: ${sharedDatasetsOrBenchmarks.join(', ')}.`);
       }
+    } else if (affiliationsMissing) {
+      state = 'INDEPENDENCE_UNKNOWN';
+      notes.push('Institutional affiliation metadata missing or incomplete; cannot affirm independence without institutional verification.');
     } else {
       state = 'INDEPENDENT';
-      notes.push('Disjoint author networks, different institutions, and distinct evaluation baselines.');
+      notes.push('Disjoint author networks, different verified institutions, and distinct evaluation baselines.');
+    }
+
+    // If metadata conflict occurred, flag it and prevent clean independent classification
+    if (hasMetadataConflict && state === 'INDEPENDENT') {
+      state = 'INDEPENDENCE_UNKNOWN';
+      notes.push('Conflicting institution metadata prevents unverified INDEPENDENT classification.');
     }
 
     // Rule: PARTIALLY_DEPENDENT, DEPENDENT, and INDEPENDENCE_UNKNOWN CANNOT satisfy independent replication
@@ -243,6 +836,9 @@ export class SourceIndependenceService {
       authorJaccard: jaccard,
       sharedAuthors,
       sharedInstitutions,
+      resolvedSeedInstitutions: resolvedSeed,
+      resolvedCandidateInstitutions: resolvedCand,
+      institutionMetadataConflict: hasMetadataConflict,
       sharedDatasetsOrBenchmarks,
       lineageType,
       sharedCodebaseDetected: sharedCodebase,

@@ -264,9 +264,10 @@ All test commands were executed directly from the terminal without source modifi
 | **Stage 4B Discovery & Ingestion** | `npx tsx tests/stage4b_discovery_ingestion.ts` | 37 | 37 | 0 | 0 | Live OpenAlex API discovery + local SSRF guards |
 | **Stage 4C AI Extraction & Remediation** | `npx tsx tests/stage4c_extraction_verification.ts` | 40 | 40 | 0 | 0 | Live Supabase idempotency + NFC Unicode slicing |
 | **Stage 4D Validation & Verification** | `npx tsx tests/stage4d_validation_verification.ts` | 56 | 56 | 0 | 0 | Live Supabase RPC + unit engines + synthetic clusters |
+| **Subtotal (Automated Test Suites)** | — | **161** | **161** | **0** | **0** | **100% Test Pass Rate** |
 | **TypeScript Typecheck** | `npm run lint` (`tsc --noEmit`) | 1 | 1 | 0 | 0 | Local TypeScript compiler (0 errors) |
 | **Vite Client Production Build** | `npm run build` (`vite build`) | 1 | 1 | 0 | 0 | Bundled 1740 modules in 691ms (0 errors) |
-| **Master Platform Total** | — | **164** | **164** | **0** | **0** | **100% Pass Rate** |
+| **Master Platform Total** | — | **163** | **163** | **0** | **0** | **100% Pass Rate (161 tests + 2 build checks)** |
 
 ---
 
@@ -289,7 +290,7 @@ All test commands were executed directly from the terminal without source modifi
 
 ## 9. Final Audit Verdict
 
-Based on direct source inspection, read-only live Supabase verification on project `dtlvtpntmtdmdawupylv`, and successful execution of 164 automated tests with zero failures:
+Based on direct source inspection, read-only live Supabase verification on project `dtlvtpntmtdmdawupylv`, and successful execution of 161 automated test assertions across 4 test suites plus 2 build/compiler checks (163 total checks) with zero failures:
 
 ### **VERDICT:**
 ```
