@@ -119,13 +119,28 @@ The intrinsic value of a scientific opportunity measures its epistemic rigor, de
   - $\text{ProblemWellPosedness} \in [0.0, 1.0]$: Evaluates whether success and failure criteria can be unambiguously operationalized.
 - **Missing Data:** If metric definitions are ambiguous or undefined in the literature, marked `NOT_OPERATIONALIZED` with $S_{tractability} \le 3.0$.
 
-### 3.5 Composite Intrinsic Scientific Value Formulation
-$$V_{scientific} = \left(w_c S_{confidence} + w_n S_{novelty} + w_s S_{significance} + w_t S_{tractability}\right) \cdot \Pi_{scientific\_gates}$$
-- **Default Weights:** $w_c = 0.30, \; w_n = 0.25, \; w_s = 0.30, \; w_t = 0.15$ (Sum = $1.00$).
-- **Non-Compensatory Gates ($\Pi_{scientific\_gates}$):**
-  - If $S_{tractability} < 2.0$ (ill-posed problem with no definable metric), $V_{scientific}$ is capped at $\le 2.5$.
-  - If active unresolved contradiction exists under matched conditions, $V_{scientific}$ is capped at $\le 3.0$.
-  - If $S_{novelty} < 2.0$ (over-saturated topic with $> 50$ recent preprints attempting the identical fix), $V_{scientific}$ is capped at $\le 4.0$ with warning `OVER_SATURATED_RESEARCH_AREA`.
+### 3.5 Composite Intrinsic Scientific Value Formulation & Scientific Qualification
+Intrinsic scientific opportunity value is calculated via linear weighted sum across the four intrinsic dimensions, completely decoupled from researcher feasibility:
+
+$$V_{scientific} = w_c S_{confidence} + w_n S_{novelty} + w_s S_{significance} + w_t S_{tractability\_methodological}$$
+
+- **Default Weights:** $w_c = 0.30, \; w_n = 0.25, \; w_s = 0.30, \; w_t = 0.15$ (Normalized sum: $\sum w_i = 1.00$).
+- **Methodological Tractability ($S_{tractability\_methodological}$):** Strictly assesses whether the problem statement is *methodologically well-posed* (operational success/failure metrics, baseline references, and falsifiable boundaries definable in principle). It does **not** evaluate computational cost, resource scarcity, or labor intensity.
+- **Missing Literature Data Semantics:** If operational metrics or baseline performance are missing from the literature, the dimension is marked `STATUS: METRIC_UNSPECIFIED` with clear qualitative explanation. Missing data never silently inflicts an arbitrary numerical penalty.
+
+### 3.6 Explicit Scientific Eligibility Gates & Discrete Qualification Indicators
+Arbitrary scalar clamps (e.g. min-capping formulas) conflate distinct epistemic signals. Subsystem A replaces arbitrary scalar capping with explicit eligibility gates and discrete qualification indicators:
+
+1. **Contradiction Qualification & Premise Eligibility:**
+   - **`NO_CONTRADICTIONS_DETECTED`:** Validation confirms supportive or unresolved evidence across literature.
+   - **`PREMISE_FALSIFIED`:** The fundamental premise or theoretical mechanism of the research gap is directly contradicted and falsified by verified literature evidence. $\implies$ **Hard Disqualification Gate:** The opportunity is classified as `INELIGIBLE_FALSIFIED_PREMISE` and excluded from prospective scientific ranking.
+   - **`SCOPE_NARROWED`:** Contradictions exist only under specific boundary conditions (e.g. invalid for long contexts, but valid for short contexts). $\implies$ Does **not** cap $V_{scientific}$; emits `QUALIFICATION: BOUNDARY_CONDITION_RESTRICTED` with explicit domain exclusions.
+   - **`CONTRADICTION_STATUS_UNKNOWN`:** No directly comparable literature found. Retains neutral status with tag `CONTRADICTION_STATUS_UNKNOWN` (no penalty applied).
+2. **Literature Density & Research Frontier Classification:**
+   - **`SPARSE_FRONTIER`:** Low literature volume; pioneer exploratory area.
+   - **`ACTIVE_COMPETITIVE`:** Moderate volume of active contemporary investigations.
+   - **`SATURATED_EXACT_REPETITION`:** High density of preprints attempting identical incremental variations. Reflected continuously in $S_{novelty}$ (distance from existing literature) and flagged with advisory tag `TOPIC_SATURATION_WARNING`, but not crushed by arbitrary numerical caps.
+   - **`DIFFICULT_OPEN_DIRECTION`:** High significance combined with low published success rate across multiple labs. Categorized as a high-value breakthrough target, never penalized for difficulty.
 
 ---
 
@@ -133,34 +148,61 @@ $$V_{scientific} = \left(w_c S_{confidence} + w_n S_{novelty} + w_s S_{significa
 
 The execution suitability evaluates whether a specific researcher, lab, or institution can realistically pursue the opportunity given their declared or verified constraints.
 
-### 4.1 Sub-Dimensions of Suitability
-1. **Compute & Accelerator Suitability ($E_{compute} \in [0.0, 10.0]$):**
-   - Matches required GPU architecture (e.g. NVIDIA A100/H100), VRAM capacity, node count, and wall-clock hours against researcher's declared profile.
-   - If required compute $\le$ verified capacity $\implies 10.0$.
-   - If required compute exceeds capacity by $2\times \implies 5.0$.
-   - If required compute exceeds capacity by $> 5\times \implies 0.0$ (Gate Triggered).
-2. **Dataset & Asset Accessibility ($E_{data} \in [0.0, 10.0]$):**
-   - Evaluates whether required datasets are Public Open ($10.0$), Gated Academic ($7.0$), Restricted Clinical ($3.0$), or Proprietary Closed ($0.0$).
-3. **Domain Expertise & Facility Requirements ($E_{facility} \in [0.0, 10.0]$):**
-   - Evaluates whether the experiment requires specialized wet-lab biosafety facilities, hardware testbenches, or institutional review board (IRB) ethical approvals.
-4. **Budget & Timeline Feasibility ($E_{budget} \in [0.0, 10.0]$):**
-   - Evaluates estimated API token costs, cloud compute billing, and execution timeline against the researcher's declared monthly constraints.
+### 4.1 Discrete Resource Evidence Representation & Anti-Inflation Controls
+Arbitrary discount multipliers (e.g. multiplying self-declared resources by 0.70 or 0.80) lack empirical calibration. Subsystem A eliminates all arbitrary multipliers and represents each resource requirement as an explicit, auditable **Evidence Record**:
 
-### 4.2 Composite Suitability Formulation
-$$E_{suitability} = \left(\alpha_{comp} E_{compute} + \alpha_{data} E_{data} + \alpha_{fac} E_{facility} + \alpha_{bud} E_{budget}\right) \cdot \Pi_{suitability\_gates}$$
-- **Default Weights:** $\alpha_{comp} = 0.40, \; \alpha_{data} = 0.30, \; \alpha_{fac} = 0.15, \; \alpha_{bud} = 0.15$.
-- **Hard Exclusion Gate ($\Pi_{suitability\_gates}$):** If a dataset is proprietary/inaccessible or hardware requirement exceeds capacity by $> 5\times$, $E_{suitability} = 0.0$.
+- **Resource Claim Schema:**
+  - `resource_type`: (`GPU_COMPUTE`, `DATASET_ACCESS`, `FACILITY_LAB`, `FINANCIAL_BUDGET`).
+  - `required_specification`: Quantitative requirement (e.g. `>= 4x A100 80GB VRAM`, `PhysioNet Credentialed DUA`).
+  - `claimed_availability`: Quantitative capacity declared by researcher.
+  - `evidence_source`: (`CLOUD_PROVIDER_API`, `INSTITUTIONAL_SSO`, `USER_SELF_DECLARATION`, `NONE`).
+  - `verification_status`: Exactly one of:
+    - **`VERIFIED_AVAILABLE`:** Cryptographically or API-confirmed active access.
+    - **`DECLARED_AVAILABLE`:** Researcher self-declared capacity.
+    - **`VERIFIED_UNAVAILABLE`:** Verified absence of required hardware or access rejection.
+    - **`UNKNOWN`:** Incomplete or unentered profile data.
+    - **`EXPIRED_EVIDENCE`:** Previously verified credential exceeded freshness TTL.
+  - `verification_timestamp`: ISO timestamp of verification check.
+  - `evidence_freshness_ttl_days`: Pinned TTL (e.g. 90 days for API tokens; 365 days for academic DUAs).
+  - `confidence_or_uncertainty`: Qualitative indicator (`HIGH`, `MEDIUM`, `LOW`, `UNKNOWN`).
+  - `researcher_override_flag`: Boolean enabling researcher annotation with mandatory justification.
+
+> [!IMPORTANT]
+> **THE UNKNOWN EVIDENCE INVARIANT:**
+> A verification status of `UNKNOWN` or `EXPIRED_EVIDENCE` must **never** be interpreted or scored as unavailable. Missing evidence represents absence of knowledge, not absence of capability.
+
+### 4.2 Composite Suitability Formulation & Missing-Data Handling
+$$E_{raw} = \alpha_{comp} E_{compute} + \alpha_{data} E_{data} + \alpha_{fac} E_{facility} + \alpha_{bud} E_{budget}$$
+- **Default Dimension Weights:** $\alpha_{comp} = 0.40, \; \alpha_{data} = 0.30, \; \alpha_{fac} = 0.15, \; \alpha_{bud} = 0.15$ (Normalized sum: $\sum \alpha_i = 1.00$).
+
+**Explicit Suitability Evaluation Rules:**
+1. **Hard Exclusion Gate (`RESOURCE_BLOCKED`):** If any required resource is `VERIFIED_UNAVAILABLE` (e.g. required compute exceeds verified capacity by $>5\times$ or required dataset is strictly proprietary closed), $E_{suitability} = 0.00$.
+2. **Missing Profile Data (`SUITABILITY_UNDETERMINED`):** If a required resource has verification status `UNKNOWN` or `EXPIRED_EVIDENCE`, the system does **not** impute zero. The evaluation emits $E_{suitability} = \text{null}$ with status `SUITABILITY_UNDETERMINED`.
+3. **Transparent Provenance:** When compute or data is `DECLARED_AVAILABLE`, $E_{suitability}$ is computed from the claimed capacity without arbitrary numerical discounts, but displays the badge `EVIDENCE: UNVERIFIED_SELF_DECLARATION` alongside the score.
 
 ---
 
-## 5. Decision Output: Actionable Research Priority ($P_{actionable}$)
+## 5. Decision Output: Strategic Research Decision Matrix
 
-The final recommendation combines intrinsic scientific value and execution suitability without conflating their meanings:
+The final recommendation strictly separates intrinsic scientific ranking from researcher-specific strategic categorization.
 
-$$P_{actionable} = \beta \cdot V_{scientific} + (1.0 - \beta) \cdot E_{suitability}$$
-- **Default Balance Factor:** $\beta = 0.60$ (prioritizing intrinsic scientific value while penalizing infeasible execution).
+> [!CAUTION]
+> **ELIMINATION OF THE $P_{actionable}$ SCALAR COLLAPSE:**
+> The previous scalar formulation ($0.60 V_{scientific} + 0.40 E_{suitability}$) is **permanently eliminated**. Blending intrinsic scientific value with researcher execution constraints into a single scalar collapses orthogonal dimensions and reintroduces the conflation between objective scientific merit and institutional wealth.
+> 
+> - **Scientific Ranking:** Candidates are ranked across literature strictly and solely by $V_{scientific}$.
+> - **Operational Categorization:** Categorization for a specific lab is strictly determined by the 2D decision function `StrategicQuadrant(V_scientific, E_suitability)`.
 
-### 5.1 The 2D Strategic Research Decision Matrix
+### 5.1 The 2D Strategic Research Decision Matrix & Discrete Mapping
+Each evaluated opportunity is mapped into exactly one operational category via the piecewise decision function:
+
+$$\text{StrategicQuadrant}(V_{scientific}, E_{suitability}) = \begin{cases}
+\text{SUITABILITY\_UNDETERMINED} & \text{if } E_{suitability} \text{ is null or UNKNOWN} \\
+\text{IMMEDIATE\_HIGH\_PRIORITY} & \text{if } V_{scientific} \ge 6.0 \land E_{suitability} \ge 6.0 \\
+\text{GRANT\_OR\_COLLABORATION\_TARGET} & \text{if } V_{scientific} \ge 6.0 \land E_{suitability} < 6.0 \\
+\text{FEASIBLE\_RESEARCH\_OPPORTUNITY} & \text{if } V_{scientific} < 6.0 \land E_{suitability} \ge 6.0 \\
+\text{DEPRIORITIZED} & \text{if } V_{scientific} < 6.0 \land E_{suitability} < 6.0
+\end{cases}$$
 
 ```
   Execution
@@ -168,7 +210,7 @@ $$P_{actionable} = \beta \cdot V_{scientific} + (1.0 - \beta) \cdot E_{suitabili
 (E_suitability)
    ▲
 10 ┼───────────────────────────────┬───────────────────────────────┐
-   │    FEASIBLE EXERCISE          │    IMMEDIATE HIGH PRIORITY    │
+   │ FEASIBLE RESEARCH OPPORTUNITY │    IMMEDIATE HIGH PRIORITY    │
    │  Low Scientific Significance  │  High Scientific Significance │
    │  High Lab Suitability         │  High Lab Suitability         │
    │  (Pedagogical / Student Trial)│  (Pursue Immediately)         │
@@ -178,15 +220,16 @@ $$P_{actionable} = \beta \cdot V_{scientific} + (1.0 - \beta) \cdot E_{suitabili
    │  Low Lab Suitability          │  Low Lab Suitability          │
    │  (Do Not Pursue)              │  (Seek Compute / Partner Lab) │
  0 ┴───────────────────────────────┴───────────────────────────────►
-   0                               5                              10
+   0                               6                              10
                          Intrinsic Scientific Value (V_scientific)
 ```
 
 **Key Epistemic Guarantee:** An independent researcher with an RTX 4090 GPU evaluating FlashAttention quadratic scaling will see:
 - $V_{scientific} = 9.20$ (Monumental open architectural problem).
 - $E_{suitability} = 2.40$ (Requires multi-node A100 cluster).
-- Strategic Recommendation: **`HIGH_VALUE_PARTNERSHIP_TARGET`** (Seek institutional compute grant or partner with a high-compute institution).
+- Strategic Recommendation: **`GRANT_OR_COLLABORATION_TARGET`** (Seek institutional compute grant or partner with a high-compute institution).
 The intrinsic value remains untarnished at 9.20!
+- If researcher profile data is missing or unverified, the system marks $E_{suitability} = \text{null}$ with category **`SUITABILITY_UNDETERMINED`**, preserving $V_{scientific} = 9.20$ without penalization.
 
 ---
 

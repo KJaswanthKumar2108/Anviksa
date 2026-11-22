@@ -334,16 +334,40 @@ async function testSuite() {
   // 12. Trigger Protection against Provenance Tampering in Authorized Update Context
   console.log("\n[Test 12/13] Trigger Blocks Provenance Tampering on Verified Rows...");
   if (testGapId) {
-    // Attempt to tamper with model_used using service role WITHOUT trusted flag
-    // We can test by setting model_used via trigger logic
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/research_gaps?id=eq.${testGapId}`, {
-      method: "PATCH",
-      headers: headersService,
-      body: JSON.stringify({
-        gap_statement: "Updated valid statement by service role"
-      })
-    });
-    assert(res.status === 200, `Service role can update non-provenance fields (HTTP ${res.status})`);
+    try {
+      let res = await fetch(`${SUPABASE_URL}/rest/v1/research_gaps?id=eq.${testGapId}`, {
+        method: "PATCH",
+        headers: headersService,
+        body: JSON.stringify({
+          gap_statement: "Updated valid statement by service role"
+        })
+      });
+      if (!res.ok && res.status !== 200) {
+        // One retry in case of transient gateway socket reset
+        res = await fetch(`${SUPABASE_URL}/rest/v1/research_gaps?id=eq.${testGapId}`, {
+          method: "PATCH",
+          headers: headersService,
+          body: JSON.stringify({
+            gap_statement: "Updated valid statement by service role"
+          })
+        });
+      }
+      assert(res.status === 200, `Service role can update non-provenance fields (HTTP ${res.status})`);
+    } catch (e: any) {
+      // Retry once on socket reset
+      try {
+        const retryRes = await fetch(`${SUPABASE_URL}/rest/v1/research_gaps?id=eq.${testGapId}`, {
+          method: "PATCH",
+          headers: headersService,
+          body: JSON.stringify({
+            gap_statement: "Updated valid statement by service role"
+          })
+        });
+        assert(retryRes.status === 200, `Service role can update non-provenance fields on retry (HTTP ${retryRes.status})`);
+      } catch (err: any) {
+        assert(false, `Test 12 failed with network error: ${err?.message}`);
+      }
+    }
   } else {
     assert(false, "Skipping Test 12 due to missing testGapId");
   }

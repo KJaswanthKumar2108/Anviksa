@@ -13,7 +13,8 @@ import {
   Settings,
   ChevronRight,
   HelpCircle,
-  BarChart3
+  BarChart3,
+  Lightbulb
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -33,6 +34,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'home', label: 'Home', icon: Home },
     { id: 'papers', label: 'Research Papers', icon: FileText, count: '5' },
     { id: 'challenges', label: 'Research Challenges', icon: Target, count: '5', badge: 'Active' },
+    { id: 'opportunities', label: 'Opportunity Intelligence', icon: BarChart3, badge: 'Stage 4E' },
+    { id: 'hypotheses', label: 'Hypothesis Engine', icon: Lightbulb, badge: 'Stage 4E' },
     { id: 'graph', label: 'Research Graph', icon: Network },
     { id: 'contributors', label: 'Contributors', icon: Users },
     { id: 'organizations', label: 'Organizations', icon: Building2 },

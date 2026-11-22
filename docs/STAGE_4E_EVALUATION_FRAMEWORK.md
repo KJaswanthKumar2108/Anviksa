@@ -77,16 +77,21 @@ Every proposed metric is formally specified below across all 10 required archite
 1. **Full Name:** Kendall's Rank Correlation Concordance of Intrinsic Opportunity Value.
 2. **Exact Measurement:** Rank-order agreement between the system's Intrinsic Scientific Opportunity Value ($V_{scientific}$) and the median ranking established by an independent expert panel.
 3. **Mathematical Formula:**
-   $$\tau = \frac{C - D}{\frac{1}{2} n (n - 1)}$$
-   where $C$ is the count of concordant pairs and $D$ is the count of discordant pairs across $n$ ranked opportunities.
+   $$\tau_b = \frac{P - Q}{\sqrt{(P + Q + T_X)(P + Q + T_Y)}}$$
+   where $P$ is concordant pairs, $Q$ is discordant pairs, and $T_X, T_Y$ are tie counts in algorithmic and human expert median rankings.
 4. **Numerator & Denominator:**
-   - *Numerator:* Excess of concordant pairs over discordant pairs ($C - D$).
-   - *Denominator:* Total possible distinct pairs among $n$ items: $\binom{n}{2}$.
+   - *Numerator:* Excess of concordant pairs over discordant pairs ($P - Q$).
+   - *Denominator:* Geometric mean of effective non-tied pairs: $\sqrt{(P + Q + T_X)(P + Q + T_Y)}$.
 5. **Evaluation Unit:** Ordered list of research opportunities within a scientific domain.
 6. **Annotation Process:** Expert panel ranks $n=20$ validated gaps in each domain from most to least promising independently.
 7. **Evaluation Dataset:** 60 curated research gaps across Clusters A, B, and C.
 8. **Target Threshold Justification:** $\mathbf{\tau \ge 0.70}$ (Target). Indicates strong positive monotonic association between algorithmic ranking and human expert consensus.
-9. **Confidence Intervals & Uncertainty:** Asymptotic standard error computed via Fieller's formula: $\text{Var}(\tau) = \frac{2(2n + 5)}{9n(n-1)}$.
+9. **Confidence Intervals, Uncertainty & Non-Parametric Inference:**
+   - **Method Selection & Limitations of Asymptotic Normal Transforms:** While the Long & Rosenthal (1988) Fisher $z$-transform ($z_\tau = \operatorname{arctanh}(\tau)$, $\operatorname{Var}(z_\tau) \approx \frac{0.437}{n - 4}$) is frequently cited in psychological literature (often loosely referred to in historical literature in connection with Fieller, Hartley, & Pearson 1957 correlation studies), it strictly assumes underlying bivariate normality, independent observation pairs, and zero ties. In ranked benchmark evaluations ($n=20$ per domain), ranks exhibit ties and paired comparisons are statistically dependent.
+   - **Primary Inference Standard: Non-Parametric Paired Bootstrap:** The primary confidence interval for $\tau_b$ is derived via **Non-Parametric Paired Stratified Bootstrap** resampling items $(X_i, Y_i)$ with replacement over $B = 2,000$ replications, computing $\tau_b$ on each resample and constructing the 95% BCa (bias-corrected and accelerated) confidence interval $[\tau_{b, L}, \tau_{b, U}]$.
+   - **Hypothesis Testing ($H_0: \tau_b = 0$):** Conducted via exact Permutation Test shuffling the algorithmic ranking vector across 10,000 permutations.
+   - **Asymptotic Reference:** Noether (1967) / Cliff (1993) non-null variance with tie corrections is reported as an asymptotic reference only:
+     $$\sigma^2_{\tau_b} = \frac{4}{n} \left[ \frac{1}{n} \sum_{i=1}^n (P_i - Q_i)^2 - \tau_b^2 \right]$$
 10. **Gaming & Failure Modes:** Susceptible to rater bias toward high-citation topics. Controlled by blinding annotators to citation counts and providing only the scientific problem statements.
 
 ---
@@ -103,7 +108,11 @@ Every proposed metric is formally specified below across all 10 required archite
 6. **Annotation Process:** Double-blind expert panel labels each causal claim as: Grounded in Citation, Reasonable Extrapolation, or Unsupported Hallucination.
 7. **Evaluation Dataset:** 100 randomly sampled generated hypotheses ($K \ge 400$ total causal assertions).
 8. **Target Threshold Justification:** $\mathbf{\le 5.0\%}$ (Target). Guarantees that at least $95\%$ of all generated explanatory statements are verifiable.
-9. **Confidence Intervals & Uncertainty:** Bootstrapped 95% confidence interval over 1,000 resamples.
+9. **Confidence Intervals & Uncertainty:**
+   - Simple i.i.d. bootstrap is invalid due to intra-hypothesis clustering of assertions.
+   - Stage 4E mandates a **Cluster-Aware Block Bootstrap** (Cameron, Gelbach, & Miller 2008): Resampling occurs at the hypothesis/gap cluster level $G = 100$ with $B = 1,000$ resamples:
+     $$\widehat{\text{Var}}_{cluster}(\widehat{UCR}) = \frac{G}{G - 1} \sum_{g=1}^G \left(\mathbf{u}_g - \bar{\mathbf{u}}\right)^2$$
+     where $\mathbf{u}_g$ is the contribution of cluster $g$ to the overall rate.
 10. **Gaming & Failure Modes:** A model might output vague or platitudinous claims (*"transformers process tokens"*). Prevented by pairing $UCR$ with $HFI$ and novelty evaluation.
 
 ---
@@ -119,7 +128,12 @@ Every proposed metric is formally specified below across all 10 required archite
 6. **Annotation Process:** Automated structural schema validation combined with expert verification that parameters are realistic.
 7. **Evaluation Dataset:** 50 synthesized experiment protocols.
 8. **Target Threshold Justification:** $\mathbf{\ge 8.5 / 10.0}$ (Target). Ensures protocols are directly operationalizable.
-9. **Confidence Intervals & Uncertainty:** Sample mean $\pm t_{0.025, N-1} \cdot \frac{s}{\sqrt{N}}$.
+9. **Confidence Intervals, Uncertainty & Principled Endpoint Handling:**
+   - **Endpoint Singularities in Raw Logit Transforms:** The standard logit transform $\operatorname{logit}(p) = \ln(p / (1-p))$ has singularities at $p=0.0$ and $p=1.0$ ($PCI = 0.0$ or $10.0$). Relying on arbitrary $\epsilon$-adjustments lacks theoretical justification and distorts tail probabilities.
+   - **Primary Standard: Bounded Non-Parametric BCa Bootstrap:** Stage 4E establishes the **Non-Parametric BCa Bootstrap directly on the support $[0.0, 10.0]$** as the primary inference method. Resampling protocols $\mathcal{P}_i$ ($B = 2,000$) preserves exact score distributions, corrects for skewness and acceleration near ceiling, and guarantees confidence bounds lie strictly within $[\min(\mathcal{P}), \max(\mathcal{P})] \subseteq [0.0, 10.0]$ without transforming scales or suffering boundary singularities.
+   - **Principled Parametric Alternative: Bayesian Squeezed Beta Transformation (Smithson & Verkuilen 2006):** When a parametric interval is required, raw proportions $p = PCI / 10.0 \in [0, 1]$ are squeezed via Bayesian uniform prior shrinkage:
+     $$p^* = \frac{p \cdot (N - 1) + 0.5}{N}$$
+     This maps $[0, 1]$ strictly into $\left[\frac{0.5}{N}, 1 - \frac{0.5}{N}\right]$ using a mathematically grounded $Beta(0.5, 0.5)$ shrinkage prior. The unbounded variable $y = \operatorname{logit}(p^*)$ is then modeled via Student's t-interval and back-transformed to the $[0.0, 10.0]$ scale via the inverse logit function.
 10. **Gaming & Failure Modes:** A protocol can fill fields with dummy text ("seed=42", "metric=accuracy"). Mitigated by checking semantic consistency between metrics and hypothesis variables.
 
 ---
@@ -155,11 +169,32 @@ Cohen's kappa ($\kappa$) is mathematically invalid for multi-rater panels ($>2$ 
      $$\text{ICC}(2, k) = \frac{\text{MS}_R - \text{MS}_E}{\text{MS}_R + \frac{\text{MS}_C - \text{MS}_E}{n}}$$
    - Acceptance Standard: $\text{ICC} \ge 0.75$.
 
-### 3.2 Expert Panel Structure & Blinding
-- **Panel Composition:** 12 independent researchers holding Ph.D. degrees in relevant sub-fields (Machine Learning Systems, Computational Biology, Natural Language Processing).
-- **Raters per Artifact:** Exactly 3 independent raters evaluate each candidate hypothesis and protocol.
-- **Double-Blinding:** Raters cannot see whether an artifact was produced by Gemma 4 MoE, human experts, or baseline generators, nor can they view the ratings of other annotators.
-- **Disagreement Resolution:** If the rating delta exceeds $1.5$ on a 5-point scale or annotators disagree on binary falsifiability, the artifact is escalated to a Senior Scientific Arbitrator who provides a binding adjudication with written rationale.
+### 3.2 Expert Panel Structure, Allocation (BIBD), Blinding & Adjudication
+- **Panel Composition & Domain Expertise Allocation:**
+  - 12 independent external researchers holding Ph.D. degrees, partitioned equally across 3 focal scientific domains: 4 Machine Learning Systems, 4 Computational Biology, and 4 Natural Language Processing.
+  - **Expertise Boundary Rules:** Substantive domain claims (e.g. biological mechanism validity, mathematical proof steps) must be evaluated by experts qualified in that specific domain. Cross-domain evaluation is strictly restricted to general methodological criteria (e.g. statistical power, variable isolation).
+- **Balanced Incomplete Block Design (BIBD) Combinatorics:**
+  - Artifacts are allocated according to a symmetric $(v=12, b=220, r=55, k=3, \lambda=10)$ BIBD schedule.
+  - *Design Equations Verified:* $v \cdot r = 12 \cdot 55 = 660$; $b \cdot k = 220 \cdot 3 = 660$; $\lambda(v - 1) = 10 \cdot 11 = 110 = r(k - 1) = 55 \cdot 2$.
+  - *Invariant:* Every artifact receives exactly $k=3$ independent ratings. Every pair of raters evaluates exactly $\lambda=10$ shared artifacts, guaranteeing uniform variance in rater effect estimation.
+- **Conflict of Interest (COI) Management:**
+  - All raters declare institutional affiliations, direct collaborators, and co-authors within the preceding 48 months.
+  - If a rater has a COI with any cited baseline or author in an artifact, an automated permutation of the block assignment replaces the conflicted rater with an unconflicted domain peer while preserving the $\lambda$ balance schedule.
+- **Handling Incomplete or Missing Ratings:**
+  - Missing ratings from rater dropouts violate strict BIBD orthogonality.
+  - To prevent distortion, missing observations are analyzed using **Linear Mixed-Effects Models (LMM)** with rater random effects and artifact fixed effects, or Multiple Imputation via Chained Equations (MICE), rather than classical ANOVA which assumes complete balance.
+- **Strict Double-Blinding:**
+  - Raters cannot see whether an artifact was produced by the primary model (`gemma-4-26b-a4b-it`), human experts, or baseline generators.
+  - Raters are blinded to citation counts, journal impact factors, author identities, and the ratings/comments of peer annotators.
+- **Formal Disagreement Resolution & Adjudication Protocol:**
+  - *Trigger 1 (Continuous Rating Delta):* If $\max_{i,j}(R_i - R_j) > 1.5$ on a 5-point Likert scale.
+  - *Trigger 2 (Binary Falsifiability Discordance):* If rater votes on hypothesis falsifiability split ($2-1$).
+  - *Adjudication Process:* The artifact and all blinded rater critiques are submitted to a Senior Scientific Arbitrator. The Arbitrator provides a binding adjudication accompanied by an immutable written rationale recorded in `public.researcher_reviews.adjudication_notes`.
+  - *Tie-Breaking Policy:* If 2 raters pass and 1 fails, the fail critique must be explicitly refuted by the Arbitrator to approve; unresolved physical or mathematical counterexamples automatically reject the artifact.
+
+> [!WARNING]
+> **OPERATIONAL VALIDATION DISCLAIMER:**
+> Satisfying the combinatorial algebraic equations of $(v=12, b=220, r=55, k=3, \lambda=10)$ confirms mathematical existence, but does **not** constitute empirical operational validation. Operational validity depends on the successful execution and calibration of the Pilot Annotation Study ($N=20$) to confirm rater reliability ($\alpha_{Kripp} \ge 0.70$) prior to full benchmark rollout.
 
 ### 3.3 Pilot Annotation Study Protocol
 Prior to executing the full benchmark evaluation, a **Pilot Annotation Study** must be conducted:

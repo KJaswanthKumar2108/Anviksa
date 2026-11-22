@@ -77,8 +77,7 @@ erDiagram
   - `data_accessibility` (NUMERIC(4,2))
   - `facility_suitability` (NUMERIC(4,2))
   - `budget_feasibility` (NUMERIC(4,2))
-  - `actionable_priority_score` (NUMERIC(4,2), Check: `0.00 <= actionable_priority_score <= 10.00`)
-  - `strategic_decision_quadrant` (TEXT, Check: `'IMMEDIATE_HIGH_PRIORITY'`, `'GRANT_OR_COLLABORATION_TARGET'`, `'FEASIBLE_EXERCISE'`, `'DEPRIORITIZED'`)
+  - `strategic_decision_quadrant` (TEXT, Check: `'IMMEDIATE_HIGH_PRIORITY'`, `'GRANT_OR_COLLABORATION_TARGET'`, `'FEASIBLE_RESEARCH_OPPORTUNITY'`, `'DEPRIORITIZED'`, `'SUITABILITY_UNDETERMINED'`)
   - `suitability_breakdown` (JSONB, Not Null)
   - `evaluated_at` (TIMESTAMPTZ, Default: `now()`)
 - **Constraint:** `UNIQUE (opportunity_id, resource_profile_id)`
@@ -154,7 +153,8 @@ erDiagram
   - `max_vram_gb` (INTEGER, Default: 0)
   - `monthly_compute_budget_usd` (NUMERIC(10,2), Default: 0.00)
   - `accessible_dataset_tiers` (TEXT[], Default: `ARRAY['PUBLIC_OPEN']`)
-  - `is_verified` (BOOLEAN, Default: false)
+  - `resource_claims` (JSONB, Not Null, Default: `'{}'::jsonb`, holds discrete evidence states: `VERIFIED_AVAILABLE`, `DECLARED_AVAILABLE`, `VERIFIED_UNAVAILABLE`, `UNKNOWN`, `EXPIRED_EVIDENCE`)
+  - `overall_verification_status` (TEXT, Check: `'VERIFIED'`, `'PARTIALLY_VERIFIED'`, `'SELF_DECLARED'`, `'UNVERIFIED'`)
   - `created_at` (TIMESTAMPTZ, Default: `now()`)
 
 ### 2.7 `public.researcher_reviews`

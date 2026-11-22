@@ -11,6 +11,8 @@ import { literatureDiscoveryService } from './server/literatureDiscoveryService.
 import { multiPaperIngestionService } from './server/multiPaperIngestionService.js';
 import { researchGapExtractionService } from './server/researchGapExtractionService.js';
 import { crossLiteratureValidationService } from './server/crossLiteratureValidationService.js';
+import { opportunityIntelligenceService, WeightingRegime } from './server/opportunityIntelligenceService.js';
+import { hypothesisSynthesisService, ScientificParadigmType } from './server/hypothesisSynthesisService.js';
 import { getSupabaseAdmin } from './src/lib/supabase.js';
 import type { ExtractedDocument } from './src/types/openalex.js';
 
@@ -1333,6 +1335,385 @@ app.post('/api/research/gaps/:id/purge', async (req, res) => {
   }
 });
 
+// ====================================================================
+// STAGE 4E-IMP-01: RESEARCH OPPORTUNITY INTELLIGENCE API ENDPOINTS
+// ====================================================================
+
+/**
+ * POST /api/research/opportunities/synthesize
+ * Stage 4E: Synthesizes or evaluates an actionable research opportunity from a validated gap.
+ */
+app.post('/api/research/opportunities/synthesize', async (req, res) => {
+  try {
+    const { gapId, validationRunId, weightingRegime, customTractabilityAssessments, userId } = req.body;
+
+    if (!gapId || typeof gapId !== 'string') {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required parameter: gapId must be a valid research gap UUID.',
+        code: 'INVALID_GAP_ID'
+      });
+    }
+
+    const opportunity = await opportunityIntelligenceService.synthesizeOpportunity({
+      gapId,
+      validationRunId,
+      weightingRegime: weightingRegime as WeightingRegime,
+      customTractabilityAssessments,
+      userId
+    });
+
+    return res.json({
+      success: true,
+      opportunity
+    });
+  } catch (err: any) {
+    console.error('[API /api/research/opportunities/synthesize error]:', err);
+    const statusCode = err.message?.includes('not found') ? 404 : 500;
+    return res.status(statusCode).json({
+      success: false,
+      error: err.message || 'Failed to synthesize research opportunity.',
+      code: 'OPPORTUNITY_SYNTHESIS_FAILED'
+    });
+  }
+});
+
+/**
+ * GET /api/research/opportunities/:id
+ * Stage 4E: Retrieves a single research opportunity by ID with verified provenance and score explanations.
+ */
+app.get('/api/research/opportunities/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!id) {
+      return res.status(400).json({ success: false, error: 'Opportunity ID required.' });
+    }
+
+    const opportunity = await opportunityIntelligenceService.getOpportunityById(id);
+    if (!opportunity) {
+      return res.status(404).json({
+        success: false,
+        error: `Research opportunity not found: ${id}`,
+        code: 'NOT_FOUND'
+      });
+    }
+
+    return res.json({
+      success: true,
+      opportunity
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * GET /api/research/opportunities
+ * Stage 4E: Lists scientific research opportunities filtered by status, regime, density, or score.
+ */
+app.get('/api/research/opportunities', async (req, res) => {
+  try {
+    const {
+      status,
+      regime,
+      contradictionStatus,
+      literatureDensityStatus,
+      minScore,
+      gapId,
+      limit,
+      offset
+    } = req.query;
+
+    const opportunities = await opportunityIntelligenceService.listOpportunities({
+      status: status as any,
+      weightingRegime: regime as any,
+      contradictionStatus: contradictionStatus as any,
+      literatureDensityStatus: literatureDensityStatus as any,
+      minScientificValue: minScore ? Number(minScore) : undefined,
+      gapId: gapId as string,
+      limit: limit ? Number(limit) : 50,
+      offset: offset ? Number(offset) : 0
+    });
+
+    return res.json({
+      success: true,
+      count: opportunities.length,
+      opportunities
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * POST /api/research/opportunities/staleness/propagate
+ * Stage 4E: Propagates staleness across opportunities when an upstream gap changes.
+ */
+app.post('/api/research/opportunities/staleness/propagate', async (req, res) => {
+  try {
+    const { gapId, validationRunId, reason } = req.body;
+    if (!gapId) {
+      return res.status(400).json({ success: false, error: 'Gap ID required.' });
+    }
+
+    const updatedCount = await opportunityIntelligenceService.propagateStaleness(
+      gapId,
+      validationRunId,
+      reason
+    );
+
+    return res.json({
+      success: true,
+      gapId,
+      updatedCount
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * ====================================================================
+ * Stage 4E-IMP-02: Falsifiable Hypothesis Engine Endpoints
+ * ====================================================================
+ */
+
+/**
+ * POST /api/research/hypotheses/generate
+ * Synthesizes falsifiable hypotheses (K=3) from an eligible research opportunity.
+ */
+app.post('/api/research/hypotheses/generate', async (req, res) => {
+  try {
+    const { opportunityId, preferredParadigm, modelRequested, userId, candidateCount } = req.body;
+    if (!opportunityId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required parameter: opportunityId is required.',
+        code: 'MISSING_OPPORTUNITY_ID'
+      });
+    }
+
+    const hypotheses = await hypothesisSynthesisService.generateCandidateHypotheses({
+      opportunityId,
+      preferredParadigm: preferredParadigm as ScientificParadigmType,
+      modelRequested,
+      userId,
+      candidateCount: candidateCount ? Number(candidateCount) : 3
+    });
+
+    return res.json({
+      success: true,
+      count: hypotheses.length,
+      hypotheses
+    });
+  } catch (err: any) {
+    console.error('[API /api/research/hypotheses/generate error]:', err);
+    const isAbstained = err.message?.includes('ABSTAINED') || err.message?.includes('stale') || err.message?.includes('disqualified');
+    const statusCode = isAbstained ? 409 : (err.message?.includes('not found') ? 404 : 500);
+    return res.status(statusCode).json({
+      success: false,
+      error: err.message || 'Failed to synthesize candidate hypotheses.',
+      code: isAbstained ? 'SYNTHESIS_ABSTAINED' : 'HYPOTHESIS_SYNTHESIS_FAILED'
+    });
+  }
+});
+
+/**
+ * GET /api/research/hypotheses/:id
+ * Retrieves a single hypothesis by ID with complete 27-field schema.
+ */
+app.get('/api/research/hypotheses/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const hypothesis = await hypothesisSynthesisService.getHypothesisById(id);
+    if (!hypothesis) {
+      return res.status(404).json({
+        success: false,
+        error: `Hypothesis not found: ${id}`,
+        code: 'NOT_FOUND'
+      });
+    }
+
+    return res.json({
+      success: true,
+      hypothesis
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * GET /api/research/hypotheses/opportunity/:opportunity_id
+ * Retrieves all hypotheses generated for a specific research opportunity.
+ */
+app.get('/api/research/hypotheses/opportunity/:opportunity_id', async (req, res) => {
+  try {
+    const { opportunity_id } = req.params;
+    const hypotheses = await hypothesisSynthesisService.getHypothesesForOpportunity(opportunity_id);
+    return res.json({
+      success: true,
+      count: hypotheses.length,
+      hypotheses
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * GET /api/research/hypotheses/:id/versions
+ * Retrieves complete version history for a hypothesis.
+ */
+app.get('/api/research/hypotheses/:id/versions', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const versions = await hypothesisSynthesisService.getHypothesisVersionHistory(id);
+    return res.json({
+      success: true,
+      count: versions.length,
+      versions
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * PUT /api/research/hypotheses/:id/revise
+ * Submits a researcher human revision to an existing hypothesis.
+ */
+/**
+ * PUT /api/research/hypotheses/:id/revise
+ * Submits a researcher human revision to an existing hypothesis.
+ * Strictly enforces authenticated actor identity from Supabase Auth Bearer token.
+ */
+app.put('/api/research/hypotheses/:id/revise', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { revisionPayload, modificationRationale } = req.body;
+
+    if (!revisionPayload || !modificationRationale) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing revisionPayload or modificationRationale.',
+        code: 'INVALID_REVISION_PAYLOAD'
+      });
+    }
+
+    // 1. Mandatory Authorization Bearer Token
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({
+        success: false,
+        error: 'Authentication required. Authorization Bearer token must be provided.',
+        code: 'UNAUTHORIZED'
+      });
+    }
+
+    const token = authHeader.substring(7).trim();
+    if (!token) {
+      return res.status(401).json({
+        success: false,
+        error: 'Authentication required. Bearer token cannot be empty.',
+        code: 'UNAUTHORIZED'
+      });
+    }
+
+    const admin = getSupabaseAdmin();
+    if (!admin) {
+      return res.status(500).json({
+        success: false,
+        error: 'Authentication infrastructure unavailable.',
+        code: 'AUTH_INFRASTRUCTURE_UNAVAILABLE'
+      });
+    }
+
+    // 2. Validate token against Supabase Auth
+    const { data: { user }, error: authErr } = await admin.auth.getUser(token);
+    if (authErr || !user) {
+      return res.status(401).json({
+        success: false,
+        error: 'Invalid, revoked, or expired authorization token.',
+        code: 'UNAUTHORIZED'
+      });
+    }
+
+    // 3. Authenticated actor identity obtained EXCLUSIVELY from verified auth
+    const authenticatedUserId = user.id;
+
+    // 4. Reject client-supplied actor ID or forgery
+    if (req.body.userId !== undefined && req.body.userId !== authenticatedUserId) {
+      return res.status(403).json({
+        success: false,
+        error: 'User impersonation prohibited: request body userId does not match verified token identity.',
+        code: 'IMPERSONATION_PROHIBITED'
+      });
+    }
+
+    // 5. Delegate to domain service passing exclusively the verified actor ID
+    const revised = await hypothesisSynthesisService.reviseHypothesis({
+      hypothesisId: id,
+      revisionPayload,
+      modificationRationale,
+      authenticatedUserId
+    });
+
+    return res.json({
+      success: true,
+      hypothesis: revised
+    });
+  } catch (err: any) {
+    const isNotFound = err.message?.includes('not found');
+    const isForbidden = err.message?.includes('Forbidden') || err.message?.includes('not authorized');
+    const isUnauthorized = err.message?.includes('Unauthorized');
+    const statusCode = isNotFound ? 404 : (isForbidden ? 403 : (isUnauthorized ? 401 : 500));
+    return res.status(statusCode).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * POST /api/research/hypotheses/verify
+ * Standalone evaluation of 10-point HFI rubric and logical audit on a proposed hypothesis.
+ */
+app.post('/api/research/hypotheses/verify', async (req, res) => {
+  try {
+    const hypothesisData = req.body;
+
+    // 1. Schema & structure validation
+    if (!hypothesisData || typeof hypothesisData !== 'object' || Array.isArray(hypothesisData)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Hypothesis verification requires a JSON object structure.',
+        code: 'INVALID_HYPOTHESIS_PAYLOAD'
+      });
+    }
+
+    // 2. Bound payload size (< 100 KB) to prevent DoS
+    const payloadLength = JSON.stringify(hypothesisData).length;
+    if (payloadLength > 100000) {
+      return res.status(413).json({
+        success: false,
+        error: 'Payload size exceeds 100KB limit for standalone verification.',
+        code: 'PAYLOAD_TOO_LARGE'
+      });
+    }
+
+    // 3. In-memory evaluation (Zero DB mutations, pure read-only analysis)
+    const rubric = hypothesisSynthesisService.evaluateHfiRubric(hypothesisData);
+    const audit = hypothesisSynthesisService.auditHypothesisLogic(hypothesisData);
+
+    return res.json({
+      success: true,
+      rubric,
+      audit,
+      epistemicNotice: 'Automated verification evaluates syntactic falsifiability, variable isolation, and logical consistency according to the 10-point HFI rubric. It does not establish empirical scientific truth, experimental validity, or real-world physical correctness.'
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // Vite integration for dev server
 const PORT = process.env.PORT || 3000;
 
@@ -1356,4 +1737,8 @@ async function startServer() {
   });
 }
 
-startServer();
+if (process.env.NODE_ENV !== 'test') {
+  startServer();
+}
+
+export { app, startServer };

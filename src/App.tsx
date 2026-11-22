@@ -10,6 +10,8 @@ import { AuthModal } from './components/AuthModal';
 import { PaperDetailModal } from './components/PaperDetailModal';
 import { ChallengeDetailModal } from './components/ChallengeDetailModal';
 import { ReviewAndExperimentModal } from './components/ReviewAndExperimentModal';
+import { ResearchOpportunityWorkbench } from './components/ResearchOpportunityWorkbench';
+import { HypothesisWorkbench } from './components/HypothesisWorkbench';
 
 // Custom State Store & Supabase Data Hook
 import { useResearchStore } from './hooks/useResearchStore';
@@ -224,6 +226,8 @@ export default function App() {
       home: 'Dashboard',
       papers: 'Research Papers',
       challenges: 'Research Challenges',
+      opportunities: 'Opportunity Intelligence',
+      hypotheses: 'Falsifiable Hypothesis Engine',
       graph: 'Research Lifecycle Graph',
       contributors: 'Contributors',
       organizations: 'Organizations & Grantors',
@@ -341,6 +345,14 @@ export default function App() {
               onEditChallenge={(c) => { setEditingChallenge(c); setIsChallengeModalOpen(true); }}
               onDeleteChallenge={handleDeleteChallengePrompt}
             />
+          )}
+
+          {currentTab === 'opportunities' && (
+            <ResearchOpportunityWorkbench />
+          )}
+
+          {currentTab === 'hypotheses' && (
+            <HypothesisWorkbench />
           )}
 
           {currentTab === 'graph' && (
