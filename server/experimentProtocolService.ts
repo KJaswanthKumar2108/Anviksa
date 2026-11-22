@@ -98,21 +98,7 @@ export function evaluateStatisticalFalsification(params: {
   const tostBound = params.tostEquivalenceBound ?? 0.20;
   const { pValue, observedEffect, ciLower, ciUpper } = params;
 
-  // 1. Statistically Significant in Hypothesized Superior Direction
-  if (pValue < alpha && observedEffect > 0 && ciLower > 0) {
-    return {
-      decision: 'SUPPORTED',
-      pValue,
-      observedEffect,
-      ciLower,
-      ciUpper,
-      minimumMeaningfulEffect: deltaMin,
-      justification: `Empirical effect size (${observedEffect.toFixed(3)}) is statistically significant (p = ${pValue.toFixed(4)} < ${alpha}) with 95% CI [${ciLower.toFixed(3)}, ${ciUpper.toFixed(3)}] strictly excluding zero in the hypothesized direction.`,
-      fallacyAvoidanceNote: 'Affirmative claim grounded in two-tailed rejection of null in direction of theoretical interest.'
-    };
-  }
-
-  // 2. Statistically Significant in Contrary (Harmful / Degrading) Direction -> FALSIFIED
+  // 1. Statistically Significant in Contrary (Harmful / Degrading) Direction -> FALSIFIED
   if (pValue < alpha && observedEffect < 0 && ciUpper < 0) {
     return {
       decision: 'FALSIFIED',
@@ -126,8 +112,9 @@ export function evaluateStatisticalFalsification(params: {
     };
   }
 
-  // 3. Two One-Sided Tests (TOST) Equivalence / Negligible Effect:
-  // If the upper confidence bound is strictly less than the minimum meaningful effect size (ciUpper < deltaMin)
+  // 2. Two One-Sided Tests (TOST) Equivalence / Negligible Effect (ciUpper < deltaMin):
+  // When the upper confidence bound is strictly smaller than the minimum meaningful effect size,
+  // we rule out the hypothesis that effect >= deltaMin with statistical confidence.
   if (ciUpper < deltaMin) {
     if (ciLower > -tostBound && ciUpper < tostBound) {
       return {
@@ -151,6 +138,20 @@ export function evaluateStatisticalFalsification(params: {
       minimumMeaningfulEffect: deltaMin,
       justification: `The upper confidence limit (ciUpper = ${ciUpper.toFixed(3)}) is strictly less than the minimum meaningful effect size Delta_min = ${deltaMin.toFixed(2)}. The experimental data definitively rules out the claimed effect magnitude with statistical confidence.`,
       fallacyAvoidanceNote: 'Falsification established by bounding the confidence interval below the minimum meaningful effect size Delta_min, rather than affirming null from non-significance.'
+    };
+  }
+
+  // 3. Statistically Significant in Hypothesized Superior Direction (and reaches meaningful effect)
+  if (pValue < alpha && observedEffect > 0 && ciLower > 0) {
+    return {
+      decision: 'SUPPORTED',
+      pValue,
+      observedEffect,
+      ciLower,
+      ciUpper,
+      minimumMeaningfulEffect: deltaMin,
+      justification: `Empirical effect size (${observedEffect.toFixed(3)}) is statistically significant (p = ${pValue.toFixed(4)} < ${alpha}) with 95% CI [${ciLower.toFixed(3)}, ${ciUpper.toFixed(3)}] strictly excluding zero in the hypothesized direction.`,
+      fallacyAvoidanceNote: 'Affirmative claim grounded in two-tailed rejection of null in direction of theoretical interest.'
     };
   }
 
@@ -1491,6 +1492,13 @@ export class ExperimentProtocolService {
   }
 
   /**
+   * Alias for getProtocolsByHypothesisId
+   */
+  async getProtocolsForHypothesis(hypothesisId: string): Promise<ExperimentProtocolArtifact[]> {
+    return this.getProtocolsByHypothesisId(hypothesisId);
+  }
+
+  /**
    * Retrieves the immutable version history of an experiment protocol
    */
   async getProtocolVersionHistory(experimentId: string): Promise<any[]> {
@@ -1525,6 +1533,25 @@ export class ExperimentProtocolService {
       throw new Error('A detailed modificationRationale (>= 10 chars) is strictly required.');
     }
 
+    // Fetch existing experiment
+    const existing = await this.getExperimentProtocolById(params.experimentId);
+    if (!existing) {
+      throw new Error(`Experiment protocol ${params.experimentId} not found.`);
+    }
+
+    // Invariant: Verify private research gap ownership
+    const { data: parentGap } = await admin
+      .from('research_gaps')
+      .select('visibility, created_by')
+      .eq('id', existing.gap_id)
+      .single();
+
+    if (parentGap && parentGap.visibility === 'private') {
+      if (parentGap.created_by && parentGap.created_by !== params.authenticatedUserId) {
+        throw new Error('Forbidden: You are not authorized to revise protocols for a private research gap owned by another researcher.');
+      }
+    }
+
     const { data: newVersion, error: rpcErr } = await admin.rpc(
       'rpc_revise_research_experiment',
       {
@@ -1545,6 +1572,18 @@ export class ExperimentProtocolService {
     }
 
     return updated;
+  }
+
+  /**
+   * Alias for reviseExperimentProtocol
+   */
+  async reviseProtocol(params: {
+    experimentId: string;
+    revisionPayload: Record<string, any>;
+    modificationRationale: string;
+    authenticatedUserId: string;
+  }): Promise<ExperimentProtocolArtifact> {
+    return this.reviseExperimentProtocol(params);
   }
 
   /**

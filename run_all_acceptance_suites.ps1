@@ -15,13 +15,13 @@ $suites = @(
 $totalSuites = $suites.Count
 $passedSuites = 0
 
-Write-Host "========================================================================" -ForegroundColor Cyan
-Write-Host "Anvīkṣā — Full Platform Regression & Stage 4E-IMP-03 Acceptance Suite" -ForegroundColor Cyan
-Write-Host "Total Suites to Execute: $totalSuites" -ForegroundColor Cyan
-Write-Host "========================================================================`n" -ForegroundColor Cyan
+Write-Host "========================================================================"
+Write-Host "Anviksa - Full Platform Regression and Stage 4E-IMP-03 Acceptance Suite"
+Write-Host "Total Suites to Execute: $totalSuites"
+Write-Host "========================================================================`n"
 
 foreach ($suite in $suites) {
-    Write-Host ">>> Running Suite: $suite ..." -ForegroundColor Yellow
+    Write-Host "[RUNNING] Suite: $suite ..."
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
     
     npx tsx $suite
@@ -29,14 +29,14 @@ foreach ($suite in $suites) {
     $sw.Stop()
     
     if ($exitCode -ne 0) {
-        Write-Host ">>> FAILED: $suite (Exit code: $exitCode, Elapsed: $($sw.Elapsed.TotalSeconds.ToString('F1'))s)" -ForegroundColor Red
+        Write-Host "[FAILED] $suite (Exit code: $exitCode, Elapsed: $($sw.Elapsed.TotalSeconds.ToString('F1'))s)"
         exit 1
     } else {
         $passedSuites++
-        Write-Host ">>> PASSED: $suite (Elapsed: $($sw.Elapsed.TotalSeconds.ToString('F1'))s)`n" -ForegroundColor Green
+        Write-Host "[PASSED] $suite (Elapsed: $($sw.Elapsed.TotalSeconds.ToString('F1'))s)`n"
     }
 }
 
-Write-Host "========================================================================" -ForegroundColor Cyan
-Write-Host "ALL $passedSuites / $totalSuites TEST SUITES PASSED CLEANLY (EXIT CODE 0)" -ForegroundColor Green
-Write-Host "========================================================================" -ForegroundColor Cyan
+Write-Host "========================================================================"
+Write-Host "ALL $passedSuites / $totalSuites TEST SUITES PASSED CLEANLY (EXIT CODE 0)"
+Write-Host "========================================================================"
