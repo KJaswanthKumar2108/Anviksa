@@ -13,6 +13,7 @@ import { researchGapExtractionService } from './server/researchGapExtractionServ
 import { crossLiteratureValidationService } from './server/crossLiteratureValidationService.js';
 import { opportunityIntelligenceService, WeightingRegime } from './server/opportunityIntelligenceService.js';
 import { hypothesisSynthesisService, ScientificParadigmType } from './server/hypothesisSynthesisService.js';
+import { experimentProtocolService, ExperimentalDesignType } from './server/experimentProtocolService.js';
 import { getSupabaseAdmin } from './src/lib/supabase.js';
 import type { ExtractedDocument } from './src/types/openalex.js';
 
@@ -1708,6 +1709,224 @@ app.post('/api/research/hypotheses/verify', async (req, res) => {
       rubric,
       audit,
       epistemicNotice: 'Automated verification evaluates syntactic falsifiability, variable isolation, and logical consistency according to the 10-point HFI rubric. It does not establish empirical scientific truth, experimental validity, or real-world physical correctness.'
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * ====================================================================
+ * Stage 4E Work Package 4E-IMP-03: Experiment Protocol Synthesizer
+ * ====================================================================
+ */
+
+/**
+ * POST /api/research/experiments/generate
+ * Synthesizes an executable experimental protocol for an accepted falsifiable hypothesis.
+ */
+app.post('/api/research/experiments/generate', async (req, res) => {
+  try {
+    const { hypothesisId, preferredDesignType, modelRequested, userId } = req.body;
+    if (!hypothesisId) {
+      return res.status(400).json({
+        success: false,
+        error: 'hypothesisId is required.',
+        code: 'MISSING_HYPOTHESIS_ID'
+      });
+    }
+
+    const protocol = await experimentProtocolService.generateExperimentProtocol({
+      hypothesisId,
+      preferredDesignType: preferredDesignType as ExperimentalDesignType,
+      modelRequested,
+      userId
+    });
+
+    return res.json({
+      success: true,
+      protocol
+    });
+  } catch (err: any) {
+    console.error('[API /api/research/experiments/generate error]:', err);
+    const isAbstained = err.message?.includes('ABSTAINED') || err.message?.includes('stale') || err.message?.includes('disqualified');
+    const statusCode = isAbstained ? 409 : (err.message?.includes('not found') ? 404 : 500);
+    return res.status(statusCode).json({
+      success: false,
+      error: err.message || 'Failed to synthesize experiment protocol.',
+      code: isAbstained ? 'SYNTHESIS_ABSTAINED' : 'EXPERIMENT_SYNTHESIS_FAILED'
+    });
+  }
+});
+
+/**
+ * GET /api/research/experiments/:id
+ * Retrieves a single experiment protocol by ID with all metrics.
+ */
+app.get('/api/research/experiments/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const protocol = await experimentProtocolService.getExperimentProtocolById(id);
+    if (!protocol) {
+      return res.status(404).json({
+        success: false,
+        error: `Experiment protocol ${id} not found.`
+      });
+    }
+
+    return res.json({
+      success: true,
+      protocol
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * GET /api/research/experiments/hypothesis/:hypothesis_id
+ * Retrieves all experiment protocols for a specific hypothesis.
+ */
+app.get('/api/research/experiments/hypothesis/:hypothesis_id', async (req, res) => {
+  try {
+    const { hypothesis_id } = req.params;
+    const protocols = await experimentProtocolService.getProtocolsForHypothesis(hypothesis_id);
+    return res.json({
+      success: true,
+      count: protocols.length,
+      protocols
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * GET /api/research/experiments/:id/versions
+ * Retrieves immutable version audit history for an experiment protocol.
+ */
+app.get('/api/research/experiments/:id/versions', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const versions = await experimentProtocolService.getProtocolVersionHistory(id);
+    return res.json({
+      success: true,
+      count: versions.length,
+      versions
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * PUT /api/research/experiments/:id/revise
+ * Submits a researcher human revision to an existing experiment protocol.
+ * Strictly enforces authenticated actor identity from Supabase Auth Bearer token.
+ */
+app.put('/api/research/experiments/:id/revise', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { revisionPayload, modificationRationale } = req.body;
+
+    if (!revisionPayload || !modificationRationale) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing revisionPayload or modificationRationale.',
+        code: 'INVALID_REVISION_PAYLOAD'
+      });
+    }
+
+    // 1. Mandatory Authorization Bearer Token
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({
+        success: false,
+        error: 'Authentication required. Authorization Bearer token must be provided.',
+        code: 'UNAUTHORIZED'
+      });
+    }
+
+    const token = authHeader.substring(7).trim();
+    if (!token) {
+      return res.status(401).json({
+        success: false,
+        error: 'Authentication required. Bearer token cannot be empty.',
+        code: 'UNAUTHORIZED'
+      });
+    }
+
+    const admin = getSupabaseAdmin();
+    if (!admin) {
+      return res.status(500).json({
+        success: false,
+        error: 'Authentication infrastructure unavailable.',
+        code: 'AUTH_INFRASTRUCTURE_UNAVAILABLE'
+      });
+    }
+
+    // 2. Validate token against Supabase Auth
+    const { data: { user }, error: authErr } = await admin.auth.getUser(token);
+    if (authErr || !user) {
+      return res.status(401).json({
+        success: false,
+        error: 'Invalid, revoked, or expired authorization token.',
+        code: 'UNAUTHORIZED'
+      });
+    }
+
+    // 3. Authenticated actor identity obtained EXCLUSIVELY from verified auth
+    const authenticatedUserId = user.id;
+
+    // 4. Reject client-supplied actor ID or forgery
+    if (req.body.userId !== undefined && req.body.userId !== authenticatedUserId) {
+      return res.status(403).json({
+        success: false,
+        error: 'User impersonation prohibited: request body userId does not match verified token identity.',
+        code: 'IMPERSONATION_PROHIBITED'
+      });
+    }
+
+    // 5. Delegate to domain service passing exclusively the verified actor ID
+    const revised = await experimentProtocolService.reviseProtocol({
+      experimentId: id,
+      revisionPayload,
+      modificationRationale,
+      authenticatedUserId
+    });
+
+    return res.json({
+      success: true,
+      protocol: revised
+    });
+  } catch (err: any) {
+    const isNotFound = err.message?.includes('not found');
+    const isForbidden = err.message?.includes('Forbidden') || err.message?.includes('not authorized');
+    const isUnauthorized = err.message?.includes('Unauthorized');
+    const statusCode = isNotFound ? 404 : (isForbidden ? 403 : (isUnauthorized ? 401 : 500));
+    return res.status(statusCode).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * POST /api/research/experiments/validate
+ * Standalone read-only validation of an experiment protocol against scientific invariants.
+ */
+app.post('/api/research/experiments/validate', async (req, res) => {
+  try {
+    const protocolData = req.body;
+    if (!protocolData || typeof protocolData !== 'object' || Array.isArray(protocolData)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid protocol payload: Expected JSON object.'
+      });
+    }
+
+    const validation = experimentProtocolService.validateProtocol(protocolData);
+    return res.json({
+      success: true,
+      validation,
+      epistemicNotice: 'Protocol validation audits adherence to the Zero-Fabricated-Baselines invariant, 4-quadrant threats to validity, and statistical power guidelines. It does not certify that physical execution will confirm the hypothesis.'
     });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err.message });

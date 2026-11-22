@@ -12,6 +12,7 @@ import { ChallengeDetailModal } from './components/ChallengeDetailModal';
 import { ReviewAndExperimentModal } from './components/ReviewAndExperimentModal';
 import { ResearchOpportunityWorkbench } from './components/ResearchOpportunityWorkbench';
 import { HypothesisWorkbench } from './components/HypothesisWorkbench';
+import { ExperimentProtocolWorkbench } from './components/ExperimentProtocolWorkbench';
 
 // Custom State Store & Supabase Data Hook
 import { useResearchStore } from './hooks/useResearchStore';
@@ -228,6 +229,7 @@ export default function App() {
       challenges: 'Research Challenges',
       opportunities: 'Opportunity Intelligence',
       hypotheses: 'Falsifiable Hypothesis Engine',
+      experiments: 'Experiment Protocol Synthesizer',
       graph: 'Research Lifecycle Graph',
       contributors: 'Contributors',
       organizations: 'Organizations & Grantors',
@@ -353,6 +355,10 @@ export default function App() {
 
           {currentTab === 'hypotheses' && (
             <HypothesisWorkbench />
+          )}
+
+          {currentTab === 'experiments' && (
+            <ExperimentProtocolWorkbench />
           )}
 
           {currentTab === 'graph' && (
