@@ -9,6 +9,8 @@ $suites = @(
     "tests/stage4e_opportunity_intelligence.ts",
     "tests/stage4e_hypothesis_engine.ts",
     "tests/stage4e_experiment_protocol.ts",
+    "tests/stage4e_resource_suitability.ts",
+    "tests/stage4e_scientific_evaluation.ts",
     "tests/stage4e_e2e_workflow.ts"
 )
 
@@ -16,7 +18,7 @@ $totalSuites = $suites.Count
 $passedSuites = 0
 
 Write-Host "========================================================================"
-Write-Host "Anviksa - Full Platform Regression and Stage 4E-IMP-03 Acceptance Suite"
+Write-Host "Anviksa - Full Platform Regression and Stage 4E-IMP-05 Acceptance Suite"
 Write-Host "Total Suites to Execute: $totalSuites"
 Write-Host "========================================================================`n"
 
@@ -39,4 +41,22 @@ foreach ($suite in $suites) {
 
 Write-Host "========================================================================"
 Write-Host "ALL $passedSuites / $totalSuites TEST SUITES PASSED CLEANLY (EXIT CODE 0)"
+Write-Host "========================================================================`n"
+
+Write-Host "[RUNNING] TypeScript strict typecheck (npx tsc --noEmit)..."
+npx tsc --noEmit
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "[FAILED] TypeScript typecheck failed (Exit code: $LASTEXITCODE)"
+    exit 1
+}
+Write-Host "[PASSED] TypeScript strict typecheck passed cleanly.`n"
+
+Write-Host "[RUNNING] Production build (npm run build)..."
+npm run build
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "[FAILED] Production build failed (Exit code: $LASTEXITCODE)"
+    exit 1
+}
+Write-Host "`n========================================================================"
+Write-Host "COMPLETE VERIFICATION SUITE & PRODUCTION BUILD SUCCEEDED (EXIT CODE 0)"
 Write-Host "========================================================================"

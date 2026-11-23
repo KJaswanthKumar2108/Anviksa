@@ -58,22 +58,32 @@ async function runEndToEndWorkflow() {
 
   assert(Boolean(seedPaper?.id), `[Step 1] Persisted genuine seed paper: "${seedPaper.title}" (${seedPaper.doi})`);
 
-  const { data: seedGap } = await adminClient
-    .from('research_gaps')
-    .insert({
-      gap_statement: 'Associative recall accuracy deteriorates substantially beyond sequence length N=16k on state space models.',
-      gap_category: 'COMPUTATIONAL_SCALABILITY',
-      current_epistemic_classification: 'CANDIDATE_RESEARCH_GAP',
-      current_validation_outcome: 'INSUFFICIENT_EVIDENCE',
-      model_used: 'gemma-4-26b-a4b-it',
-      model_requested: 'gemma-4-26b-a4b-it',
-      visibility: 'public',
-      is_published: true
-    })
-    .select('id, gap_statement')
-    .single();
+  let seedGap: any = null;
+  let lastErr: any = null;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const { data, error } = await adminClient
+      .from('research_gaps')
+      .insert({
+        gap_statement: 'Associative recall accuracy deteriorates substantially beyond sequence length N=16k on state space models.',
+        gap_category: 'COMPUTATIONAL_SCALABILITY',
+        current_epistemic_classification: 'CANDIDATE_RESEARCH_GAP',
+        current_validation_outcome: 'INSUFFICIENT_EVIDENCE',
+        model_used: 'gemma-4-26b-a4b-it',
+        model_requested: 'gemma-4-26b-a4b-it',
+        visibility: 'public',
+        is_published: true
+      })
+      .select('id, gap_statement')
+      .single();
+    if (data) {
+      seedGap = data;
+      break;
+    }
+    lastErr = error;
+    await new Promise((r) => setTimeout(r, 1000));
+  }
 
-  if (!seedGap) throw new Error('Failed to create seedGap');
+  if (!seedGap) throw new Error(`Failed to create seedGap: ${lastErr?.message || JSON.stringify(lastErr)}`);
 
   assert(Boolean(seedGap?.id), `[Step 1] Persisted candidate limitation gap: "${seedGap.gap_statement}"`);
 

@@ -15,7 +15,9 @@ import {
   HelpCircle,
   BarChart3,
   Lightbulb,
-  FlaskConical
+  FlaskConical,
+  Compass,
+  Award
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -38,6 +40,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'opportunities', label: 'Opportunity Intelligence', icon: BarChart3, badge: 'Stage 4E' },
     { id: 'hypotheses', label: 'Hypothesis Engine', icon: Lightbulb, badge: 'Stage 4E' },
     { id: 'experiments', label: 'Experiment Protocols', icon: FlaskConical, badge: 'Stage 4E' },
+    { id: 'suitability', label: 'Resource Suitability', icon: Compass, badge: 'Stage 4E' },
+    { id: 'evaluation', label: 'Evaluation & Review', icon: Award, badge: 'Stage 4E' },
     { id: 'graph', label: 'Research Graph', icon: Network },
     { id: 'contributors', label: 'Contributors', icon: Users },
     { id: 'organizations', label: 'Organizations', icon: Building2 },

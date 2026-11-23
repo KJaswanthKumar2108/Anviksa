@@ -14,6 +14,16 @@ import { crossLiteratureValidationService } from './server/crossLiteratureValida
 import { opportunityIntelligenceService, WeightingRegime } from './server/opportunityIntelligenceService.js';
 import { hypothesisSynthesisService, ScientificParadigmType } from './server/hypothesisSynthesisService.js';
 import { experimentProtocolService, ExperimentalDesignType } from './server/experimentProtocolService.js';
+import { resourceSuitabilityService } from './server/resourceSuitabilityService.js';
+import { 
+  scientificEvaluationService,
+  calculateKendallTauB,
+  bootstrapKendallTauBCa,
+  permutationTestKendallTauB,
+  evaluatePCIDistribution,
+  calculateKrippendorffAlpha,
+  generateBIBDAllocation
+} from './server/scientificEvaluationService.js';
 import { getSupabaseAdmin } from './src/lib/supabase.js';
 import type { ExtractedDocument } from './src/types/openalex.js';
 
@@ -1911,6 +1921,7 @@ app.put('/api/research/experiments/:id/revise', async (req, res) => {
 /**
  * POST /api/research/experiments/validate
  * Standalone read-only validation of an experiment protocol against scientific invariants.
+ * Enforces strict authorization, privacy boundaries, and entity integrity if referencing existing IDs.
  */
 app.post('/api/research/experiments/validate', async (req, res) => {
   try {
@@ -1918,16 +1929,626 @@ app.post('/api/research/experiments/validate', async (req, res) => {
     if (!protocolData || typeof protocolData !== 'object' || Array.isArray(protocolData)) {
       return res.status(400).json({
         success: false,
-        error: 'Invalid protocol payload: Expected JSON object.'
+        error: 'Invalid protocol payload: Expected JSON object.',
+        code: 'INVALID_PAYLOAD'
       });
     }
 
-    const validation = experimentProtocolService.validateProtocol(protocolData);
+    const admin = getSupabaseAdmin();
+    if (!admin) {
+      return res.status(500).json({
+        success: false,
+        error: 'Database infrastructure unavailable.',
+        code: 'INFRASTRUCTURE_UNAVAILABLE'
+      });
+    }
+
+    // Audit 5: Check if the validation payload references an existing experiment, hypothesis, or gap
+    const experimentId = protocolData.id || protocolData.experiment_id || protocolData.protocolPayload?.id || protocolData.protocolPayload?.experiment_id;
+    const hypothesisId = protocolData.hypothesis_id || protocolData.protocolPayload?.hypothesis_id;
+    const gapId = protocolData.gap_id || protocolData.protocolPayload?.gap_id;
+
+    let targetGapId: string | null = null;
+
+    if (experimentId) {
+      const { data: exp, error: expErr } = await admin
+        .from('research_experiments')
+        .select('id, gap_id, hypothesis_id')
+        .eq('id', experimentId)
+        .maybeSingle();
+
+      if (expErr || !exp) {
+        return res.status(404).json({
+          success: false,
+          error: `Referenced experiment ${experimentId} not found.`,
+          code: 'EXPERIMENT_NOT_FOUND'
+        });
+      }
+
+      // Check cross-entity consistency
+      if (hypothesisId && exp.hypothesis_id !== hypothesisId) {
+        return res.status(400).json({
+          success: false,
+          error: 'Cross-entity mismatch: experiment does not belong to the specified hypothesis.',
+          code: 'ENTITY_MISMATCH'
+        });
+      }
+
+      if (gapId && exp.gap_id !== gapId) {
+        return res.status(400).json({
+          success: false,
+          error: 'Cross-entity mismatch: experiment does not belong to the specified gap.',
+          code: 'ENTITY_MISMATCH'
+        });
+      }
+
+      targetGapId = exp.gap_id;
+    } else if (hypothesisId) {
+      const { data: hyp, error: hypErr } = await admin
+        .from('research_hypotheses')
+        .select('id, gap_id')
+        .eq('id', hypothesisId)
+        .maybeSingle();
+
+      if (hypErr || !hyp) {
+        return res.status(404).json({
+          success: false,
+          error: `Referenced hypothesis ${hypothesisId} not found.`,
+          code: 'HYPOTHESIS_NOT_FOUND'
+        });
+      }
+
+      if (gapId && hyp.gap_id !== gapId) {
+        return res.status(400).json({
+          success: false,
+          error: 'Cross-entity mismatch: hypothesis does not belong to the specified gap.',
+          code: 'ENTITY_MISMATCH'
+        });
+      }
+
+      targetGapId = hyp.gap_id;
+    } else if (gapId) {
+      targetGapId = gapId;
+    }
+
+    // If an associated gap is referenced, check existence, visibility, and ownership
+    if (targetGapId) {
+      const { data: gap, error: gapErr } = await admin
+        .from('research_gaps')
+        .select('id, visibility, created_by')
+        .eq('id', targetGapId)
+        .maybeSingle();
+
+      if (gapErr || !gap) {
+        return res.status(404).json({
+          success: false,
+          error: `Referenced research gap ${targetGapId} not found.`,
+          code: 'GAP_NOT_FOUND'
+        });
+      }
+
+      if (gap.visibility === 'private') {
+        // Enforce Authentication
+        const authHeader = req.headers.authorization;
+        if (!authHeader || !authHeader.startsWith('Bearer ')) {
+          return res.status(401).json({
+            success: false,
+            error: 'Authentication required: Bearer token must be provided to validate protocols for private research gaps.',
+            code: 'UNAUTHORIZED'
+          });
+        }
+
+        const token = authHeader.substring(7).trim();
+        const { data: { user }, error: authErr } = await admin.auth.getUser(token);
+        if (authErr || !user) {
+          return res.status(401).json({
+            success: false,
+            error: 'Invalid, revoked, or expired authorization token.',
+            code: 'UNAUTHORIZED'
+          });
+        }
+
+        // Forged user ID check
+        if (req.body.userId && req.body.userId !== user.id) {
+          return res.status(403).json({
+            success: false,
+            error: 'User impersonation prohibited: request body userId does not match verified token identity.',
+            code: 'IMPERSONATION_PROHIBITED'
+          });
+        }
+
+        // Ownership check
+        if (gap.created_by && gap.created_by !== user.id) {
+          return res.status(403).json({
+            success: false,
+            error: 'Forbidden: You do not have permission to access private research gaps owned by another researcher.',
+            code: 'FORBIDDEN'
+          });
+        }
+      }
+    }
+
+    const targetPayload = protocolData.protocolPayload || protocolData;
+    const validation = experimentProtocolService.validateProtocol(targetPayload);
+    if (!validation.valid) {
+      return res.status(400).json({
+        success: false,
+        validation,
+        error: 'Protocol validation failed: one or more scientific integrity invariants violated.',
+        code: 'VALIDATION_FAILED'
+      });
+    }
+
     return res.json({
       success: true,
       validation,
       epistemicNotice: 'Protocol validation audits adherence to the Zero-Fabricated-Baselines invariant, 4-quadrant threats to validity, and statistical power guidelines. It does not certify that physical execution will confirm the hypothesis.'
     });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ============================================================================
+// STAGE 4E-IMP-04: RESOURCE SUITABILITY & STRATEGIC RECOMMENDATIONS API
+// ============================================================================
+
+/**
+ * GET /api/research/resources
+ * Retrieves all registered resources for the authenticated researcher.
+ */
+app.get('/api/research/resources', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith('Bearer ')) {
+      return res.status(401).json({ success: false, error: 'Unauthorized: Bearer token required.' });
+    }
+    const token = authHeader.replace('Bearer ', '').trim();
+    const admin = getSupabaseAdmin();
+    if (!admin) return res.status(500).json({ success: false, error: 'Database unavailable' });
+
+    const { data: { user }, error: authErr } = await admin.auth.getUser(token);
+    if (authErr || !user) {
+      return res.status(401).json({ success: false, error: 'Unauthorized: Invalid token.' });
+    }
+
+    const resources = await resourceSuitabilityService.getResearcherResources(user.id);
+    return res.json({ success: true, resources });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * POST /api/research/resources
+ * Upserts a researcher resource (compute, software, dataset, budget, etc.).
+ * Verifies authenticated identity; rejects client userId spoofing.
+ */
+app.post('/api/research/resources', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith('Bearer ')) {
+      return res.status(401).json({ success: false, error: 'Unauthorized: Bearer token required.' });
+    }
+    const token = authHeader.replace('Bearer ', '').trim();
+    const admin = getSupabaseAdmin();
+    if (!admin) return res.status(500).json({ success: false, error: 'Database unavailable' });
+
+    const { data: { user }, error: authErr } = await admin.auth.getUser(token);
+    if (authErr || !user) {
+      return res.status(401).json({ success: false, error: 'Unauthorized: Invalid token.' });
+    }
+
+    const { userId: bodyUserId, ...resourceData } = req.body || {};
+    if (bodyUserId && bodyUserId !== user.id) {
+      return res.status(403).json({
+        success: false,
+        error: 'Forbidden: Cannot create or update resources for another researcher.',
+        code: 'USER_MISMATCH'
+      });
+    }
+
+    const resId = await resourceSuitabilityService.upsertResource(user.id, resourceData);
+    return res.status(201).json({ success: true, resourceId: resId });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * POST /api/research/suitability/evaluate
+ * Evaluates researcher execution suitability E_suitability against an experiment protocol.
+ * Calculates StrategicQuadrant(V_scientific, E_suitability) without composite scalar collapse.
+ */
+app.post('/api/research/suitability/evaluate', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith('Bearer ')) {
+      return res.status(401).json({ success: false, error: 'Unauthorized: Bearer token required.' });
+    }
+    const token = authHeader.replace('Bearer ', '').trim();
+    const admin = getSupabaseAdmin();
+    if (!admin) return res.status(500).json({ success: false, error: 'Database unavailable' });
+
+    const { data: { user }, error: authErr } = await admin.auth.getUser(token);
+    if (authErr || !user) {
+      return res.status(401).json({ success: false, error: 'Unauthorized: Invalid token.' });
+    }
+
+    const { opportunityId, experimentId, persist = false } = req.body || {};
+    if (!opportunityId) {
+      return res.status(400).json({ success: false, error: 'Missing opportunityId in request payload.' });
+    }
+
+    // 1. Fetch opportunity to retrieve intrinsic V_scientific
+    const { data: opp, error: oppErr } = await admin
+      .from('research_opportunities')
+      .select('*')
+      .eq('id', opportunityId)
+      .single();
+
+    if (oppErr || !opp) {
+      return res.status(404).json({ success: false, error: `Opportunity not found: ${opportunityId}` });
+    }
+
+    const vScientific = Number(opp.intrinsic_scientific_value ?? 5.0);
+
+    // 2. Fetch experiment protocol if provided, or default requirements
+    let requirements: any[] = [];
+    if (experimentId) {
+      const { data: exp, error: expErr } = await admin
+        .from('research_experiments')
+        .select('*')
+        .eq('id', experimentId)
+        .single();
+
+      if (expErr || !exp) {
+        return res.status(404).json({ success: false, error: `Experiment not found: ${experimentId}` });
+      }
+
+      requirements = resourceSuitabilityService.extractRequirementsFromExperiment(exp);
+    } else {
+      // Default standard requirements for the opportunity
+      requirements = [
+        {
+          category: 'COMPUTE_HARDWARE',
+          requirementName: 'Primary Compute Hardware',
+          requiredSpecification: 'GPU with >= 24GB VRAM',
+          quantitativeDemands: { minVramGb: 24, gpuCount: 1 },
+          criticality: 'CRITICAL_BLOCKER'
+        },
+        {
+          category: 'FINANCIAL_BUDGET',
+          requirementName: 'Compute Execution Budget',
+          requiredSpecification: 'Cloud compute budget >= $50 USD',
+          quantitativeDemands: { budgetUsd: 50 },
+          criticality: 'RECOMMENDED'
+        }
+      ];
+    }
+
+    // 3. Retrieve researcher's resources
+    const inventory = await resourceSuitabilityService.getResearcherResources(user.id);
+
+    // 4. Evaluate suitability
+    const assessment = resourceSuitabilityService.evaluateExecutionSuitability(
+      vScientific,
+      requirements,
+      inventory,
+      opportunityId,
+      experimentId,
+      user.id
+    );
+
+    // 5. Persist if requested
+    let persistedId: string | undefined;
+    if (persist) {
+      persistedId = await resourceSuitabilityService.persistStrategicRecommendation(assessment);
+    }
+
+    return res.json({
+      success: true,
+      assessment,
+      persistedId
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * GET /api/research/recommendations
+ * Retrieves strategic recommendations for the authenticated researcher.
+ */
+app.get('/api/research/recommendations', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith('Bearer ')) {
+      return res.status(401).json({ success: false, error: 'Unauthorized: Bearer token required.' });
+    }
+    const token = authHeader.replace('Bearer ', '').trim();
+    const admin = getSupabaseAdmin();
+    if (!admin) return res.status(500).json({ success: false, error: 'Database unavailable' });
+
+    const { data: { user }, error: authErr } = await admin.auth.getUser(token);
+    if (authErr || !user) {
+      return res.status(401).json({ success: false, error: 'Unauthorized: Invalid token.' });
+    }
+
+    const { data: recs, error: recErr } = await admin
+      .from('research_strategic_recommendations')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false });
+
+    if (recErr) return res.status(500).json({ success: false, error: recErr.message });
+
+    return res.json({ success: true, recommendations: recs || [] });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ====================================================================
+// 7. STAGE 4E-IMP-05: SCIENTIFIC EVALUATION & HUMAN REVIEW API PERIMETER
+// ====================================================================
+
+/**
+ * POST /api/research/evaluations/run
+ * Executes multi-criterion scientific quality evaluation on an opportunity, hypothesis, protocol, or recommendation.
+ */
+app.post('/api/research/evaluations/run', async (req, res) => {
+  try {
+    const { entityType, entityId, persist } = req.body;
+    if (!entityType || !entityId) {
+      return res.status(400).json({ success: false, error: 'entityType and entityId are required.' });
+    }
+
+    const admin = getSupabaseAdmin();
+    if (!admin) return res.status(500).json({ success: false, error: 'Database unavailable' });
+
+    let evalResult: any;
+
+    if (entityType === 'OPPORTUNITY') {
+      const { data: opp, error: oppErr } = await admin
+        .from('research_opportunities')
+        .select('*')
+        .eq('id', entityId)
+        .single();
+      if (oppErr || !opp) return res.status(404).json({ success: false, error: 'Opportunity not found' });
+      evalResult = scientificEvaluationService.evaluateOpportunity(opp);
+    } else if (entityType === 'HYPOTHESIS') {
+      const { data: hyp, error: hypErr } = await admin
+        .from('research_hypotheses')
+        .select('*')
+        .eq('id', entityId)
+        .single();
+      if (hypErr || !hyp) return res.status(404).json({ success: false, error: 'Hypothesis not found' });
+      evalResult = scientificEvaluationService.evaluateHypothesis(hyp);
+    } else if (entityType === 'EXPERIMENT') {
+      const { data: exp, error: expErr } = await admin
+        .from('research_experiments')
+        .select('*')
+        .eq('id', entityId)
+        .single();
+      if (expErr || !exp) return res.status(404).json({ success: false, error: 'Experiment protocol not found' });
+      evalResult = scientificEvaluationService.evaluateExperimentProtocol(exp);
+    } else if (entityType === 'SUITABILITY') {
+      const { data: rec, error: recErr } = await admin
+        .from('research_strategic_recommendations')
+        .select('*')
+        .eq('id', entityId)
+        .single();
+      if (recErr || !rec) return res.status(404).json({ success: false, error: 'Suitability recommendation not found' });
+      evalResult = scientificEvaluationService.evaluateSuitabilityRecommendation(rec);
+    } else {
+      return res.status(400).json({ success: false, error: `Unsupported entityType: ${entityType}` });
+    }
+
+    let persistedId: string | undefined;
+    if (persist) {
+      persistedId = await scientificEvaluationService.recordEvaluationRun({
+        entityType,
+        entityId,
+        evaluationMode: 'AUTOMATED_RUBRIC',
+        overallScore: evalResult.overallScore,
+        passedGates: evalResult.passedGates,
+        metrics: evalResult.metrics,
+        criterionScores: evalResult.criteria
+      });
+    }
+
+    return res.json({
+      success: true,
+      evaluation: evalResult,
+      persistedId
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * GET /api/research/evaluations/:entity_type/:entity_id
+ * Fetches historical evaluation records for an artifact.
+ */
+app.get('/api/research/evaluations/:entity_type/:entity_id', async (req, res) => {
+  try {
+    const { entity_type, entity_id } = req.params;
+    const admin = getSupabaseAdmin();
+    if (!admin) return res.status(500).json({ success: false, error: 'Database unavailable' });
+
+    const { data, error } = await admin
+      .from('research_evaluations')
+      .select('*')
+      .eq('entity_type', entity_type.toUpperCase())
+      .eq('entity_id', entity_id)
+      .order('created_at', { ascending: false });
+
+    if (error) return res.status(500).json({ success: false, error: error.message });
+    return res.json({ success: true, evaluations: data || [] });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * POST /api/research/reviews
+ * Submits an authenticated human researcher review (APPROVED, REJECTED, MODIFIED_AND_APPROVED, REVISION_REQUESTED).
+ */
+app.post('/api/research/reviews', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith('Bearer ')) {
+      return res.status(401).json({ success: false, error: 'Unauthorized: Bearer token required.' });
+    }
+    const token = authHeader.replace('Bearer ', '').trim();
+    const admin = getSupabaseAdmin();
+    if (!admin) return res.status(500).json({ success: false, error: 'Database unavailable' });
+
+    const { data: { user }, error: authErr } = await admin.auth.getUser(token);
+    if (authErr || !user) {
+      return res.status(401).json({ success: false, error: 'Unauthorized: Invalid token.' });
+    }
+
+    const {
+      entityType,
+      entityId,
+      decision,
+      reviewComments,
+      parameterModifications,
+      criterionScores,
+      reviewerRole,
+      adjudicationNotes
+    } = req.body;
+
+    if (!entityType || !entityId || !decision || !reviewComments) {
+      return res.status(400).json({
+        success: false,
+        error: 'entityType, entityId, decision, and reviewComments are required fields.'
+      });
+    }
+
+    const result = await scientificEvaluationService.submitReview({
+      entityType,
+      entityId,
+      reviewerId: user.id,
+      decision,
+      reviewComments,
+      parameterModifications,
+      criterionScores,
+      reviewerRole,
+      adjudicationNotes
+    });
+
+    return res.json({
+      success: true,
+      ...result
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * GET /api/research/reviews/:entity_type/:entity_id
+ * Fetches immutable review audit history for an artifact.
+ */
+app.get('/api/research/reviews/:entity_type/:entity_id', async (req, res) => {
+  try {
+    const { entity_type, entity_id } = req.params;
+    const history = await scientificEvaluationService.getReviewHistory(
+      entity_type.toUpperCase() as any,
+      entity_id
+    );
+    return res.json({ success: true, reviews: history });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * POST /api/research/evaluations/statistical/kendall-tau
+ * Computes tie-corrected Kendall's tau_b with BCa bootstrap and permutation test.
+ */
+app.post('/api/research/evaluations/statistical/kendall-tau', (req, res) => {
+  try {
+    const { x, y, runBootstrap, bootstrapReps, runPermutation, permutationReps } = req.body;
+    if (!Array.isArray(x) || !Array.isArray(y) || x.length !== y.length || x.length < 2) {
+      return res.status(400).json({ success: false, error: 'x and y must be paired arrays of equal length >= 2' });
+    }
+
+    const baseResult = calculateKendallTauB(x, y);
+    let bootstrapResult: any = null;
+    let permutationResult: any = null;
+
+    if (runBootstrap) {
+      bootstrapResult = bootstrapKendallTauBCa(x, y, bootstrapReps || 2000);
+    }
+    if (runPermutation) {
+      permutationResult = permutationTestKendallTauB(x, y, permutationReps || 10000);
+    }
+
+    return res.json({
+      success: true,
+      base: baseResult,
+      bootstrap: bootstrapResult,
+      permutation: permutationResult
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * POST /api/research/evaluations/statistical/pci
+ * Evaluates Protocol Completeness Index (PCI) distribution via Bounded BCa Bootstrap & Bayesian Beta Squeezing.
+ */
+app.post('/api/research/evaluations/statistical/pci', (req, res) => {
+  try {
+    const { pciScores, bootstrapReps } = req.body;
+    if (!Array.isArray(pciScores) || pciScores.length < 2) {
+      return res.status(400).json({ success: false, error: 'pciScores must be an array of length >= 2' });
+    }
+
+    const result = evaluatePCIDistribution(pciScores, bootstrapReps || 2000);
+    return res.json({ success: true, ...result });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * POST /api/research/evaluations/reliability/krippendorff
+ * Computes Krippendorff's alpha for multi-rater evaluations.
+ */
+app.post('/api/research/evaluations/reliability/krippendorff', (req, res) => {
+  try {
+    const { ratingMatrix, metricType } = req.body;
+    if (!Array.isArray(ratingMatrix) || ratingMatrix.length < 2) {
+      return res.status(400).json({ success: false, error: 'ratingMatrix must have >= 2 rater rows' });
+    }
+
+    const result = calculateKrippendorffAlpha(ratingMatrix, metricType || 'ordinal');
+    return res.json({ success: true, ...result });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * POST /api/research/evaluations/reliability/bibd-schedule
+ * Generates BIBD rater allocation with COI management.
+ */
+app.post('/api/research/evaluations/reliability/bibd-schedule', (req, res) => {
+  try {
+    const { raters, artifactIds, k, coiDeclarations } = req.body;
+    if (!Array.isArray(raters) || !Array.isArray(artifactIds)) {
+      return res.status(400).json({ success: false, error: 'raters and artifactIds arrays are required.' });
+    }
+
+    const result = generateBIBDAllocation(raters, artifactIds, k || 3, coiDeclarations || {});
+    return res.json({ success: true, ...result });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err.message });
   }
@@ -1956,7 +2577,7 @@ async function startServer() {
   });
 }
 
-if (process.env.NODE_ENV !== 'test') {
+if (process.env.NODE_ENV !== 'test' && !process.argv.some(arg => arg.includes('tests/'))) {
   startServer();
 }
 

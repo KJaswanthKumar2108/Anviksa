@@ -13,6 +13,8 @@ import { ReviewAndExperimentModal } from './components/ReviewAndExperimentModal'
 import { ResearchOpportunityWorkbench } from './components/ResearchOpportunityWorkbench';
 import { HypothesisWorkbench } from './components/HypothesisWorkbench';
 import { ExperimentProtocolWorkbench } from './components/ExperimentProtocolWorkbench';
+import { ResourceSuitabilityWorkbench } from './components/ResourceSuitabilityWorkbench';
+import { ScientificEvaluationWorkbench } from './components/ScientificEvaluationWorkbench';
 
 // Custom State Store & Supabase Data Hook
 import { useResearchStore } from './hooks/useResearchStore';
@@ -359,6 +361,14 @@ export default function App() {
 
           {currentTab === 'experiments' && (
             <ExperimentProtocolWorkbench />
+          )}
+
+          {currentTab === 'suitability' && (
+            <ResourceSuitabilityWorkbench />
+          )}
+
+          {currentTab === 'evaluation' && (
+            <ScientificEvaluationWorkbench />
           )}
 
           {currentTab === 'graph' && (

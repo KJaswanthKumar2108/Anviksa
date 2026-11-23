@@ -270,9 +270,9 @@ async function runStage4E3TestSuite() {
   );
 
   // -------------------------------------------------------------------------
-  // GATE 3: Zero-Fabricated-Baselines (BAR = 100%) & Non-Invented-Thresholds
+  // GATE 3: Zero-Fabricated-Baselines & Non-Invented-Thresholds Verification
   // -------------------------------------------------------------------------
-  console.log('\n[Gate 3] Zero-Fabricated-Baselines (BAR = 100%) & Non-Invented-Thresholds...');
+  console.log('\n[Gate 3] Zero-Fabricated-Baselines & Non-Invented-Thresholds Verification...');
 
   const protoBenchmark = generatedProtocols['PAIRED_COMPARATIVE_BENCHMARK'];
   assert(
@@ -321,6 +321,20 @@ async function runStage4E3TestSuite() {
     powerSingle.model_assumptions.includes('Two independent cohorts'),
     'Analytical Power: Documents model assumptions for independent two-sample design'
   );
+  assert(
+    powerSingle.tails === 2 &&
+    powerSingle.allocation_ratio.startsWith('1:1') &&
+    powerSingle.effect_size_definition.includes("Cohen's d") &&
+    powerSingle.attrition_and_clustering_limitations.includes('Zero attrition'),
+    'Analytical Power: Documents 2-tailed alpha, 1:1 allocation, standardized effect size definition, and attrition/clustering limitations'
+  );
+
+  // One-tailed power calculation
+  const powerOneTailed = calculatePowerAndSampleSize(0.05, 0.80, 0.50, 1, 'TWO_SAMPLE_INDEPENDENT', 1);
+  assert(
+    powerOneTailed.tails === 1 && powerOneTailed.recommended_sample_size_per_group === 50 && powerOneTailed.total_sample_size === 100,
+    `Analytical Power: One-tailed design yields N=50 per arm, Total N=100 (observed ${powerOneTailed.recommended_sample_size_per_group})`
+  );
 
   // Bonferroni adjustment for m=4 endpoints
   const powerMultiple = calculatePowerAndSampleSize(0.05, 0.80, 0.50, 4, 'TWO_SAMPLE_INDEPENDENT');
@@ -340,19 +354,107 @@ async function runStage4E3TestSuite() {
   );
 
   // -------------------------------------------------------------------------
-  // GATE 4B: Audit B Statistical Decision Logic (Preventing Affirming the Null Fallacy)
+  // GATE 4B: Audit 1 Statistical Decision Logic & Non-Inferiority Verification
   // -------------------------------------------------------------------------
   console.log('\n[Gate 4B] Statistical Decision Logic & Affirming the Null Prevention...');
 
-  // Test Case A: Statistically significant effect in hypothesized direction -> SUPPORTED
-  const resSupported = evaluateStatisticalFalsification({
+  // Test Case A1: Minimum-effect superiority with effect=0.55 and CI [0.20, 0.90] overlapping Delta_min=0.50 -> INCONCLUSIVE
+  const resCaseA1 = evaluateStatisticalFalsification({
     pValue: 0.008,
     observedEffect: 0.55,
     ciLower: 0.20,
     ciUpper: 0.90,
-    minimumMeaningfulEffect: 0.50
+    minimumMeaningfulEffect: 0.50,
+    hypothesisCriterion: 'SUPERIORITY_MINIMUM_EFFECT'
   });
-  assert(resSupported.decision === 'SUPPORTED', 'Decision Logic A: p < 0.05, d=0.55 > 0, CI excluding 0 -> SUPPORTED');
+  assert(
+    resCaseA1.decision === 'INCONCLUSIVE',
+    'Decision Logic Case A1: Minimum-effect superiority with effect=0.55 and CI [0.20, 0.90] overlapping Delta_min=0.50 -> INCONCLUSIVE'
+  );
+
+  // Test Case A2: Minimum-effect superiority with effect=0.25 and CI [0.10, 0.40] strictly below Delta_min=0.50 -> FALSIFIED
+  const resCaseA2 = evaluateStatisticalFalsification({
+    pValue: 0.01,
+    observedEffect: 0.25,
+    ciLower: 0.10,
+    ciUpper: 0.40,
+    minimumMeaningfulEffect: 0.50,
+    hypothesisCriterion: 'SUPERIORITY_MINIMUM_EFFECT'
+  });
+  assert(
+    resCaseA2.decision === 'FALSIFIED',
+    'Decision Logic Case A2: Minimum-effect superiority with effect=0.25 and CI [0.10, 0.40] strictly below Delta_min=0.50 -> FALSIFIED'
+  );
+
+  // Test Case A3: Positive-effect superiority with effect=0.25 and CI [0.10, 0.40] strictly above zero -> SUPPORTED
+  const resCaseA3 = evaluateStatisticalFalsification({
+    pValue: 0.01,
+    observedEffect: 0.25,
+    ciLower: 0.10,
+    ciUpper: 0.40,
+    minimumMeaningfulEffect: 0.50,
+    hypothesisCriterion: 'SUPERIORITY_POSITIVE_EFFECT'
+  });
+  assert(
+    resCaseA3.decision === 'SUPPORTED',
+    'Decision Logic Case A3: Positive-effect superiority with effect=0.25 and CI [0.10, 0.40] strictly above zero -> SUPPORTED'
+  );
+
+  // Test Case A4: Minimum-effect superiority with effect=0.75 and CI [0.60, 0.90] strictly exceeding Delta_min=0.50 -> SUPPORTED
+  const resCaseA4 = evaluateStatisticalFalsification({
+    pValue: 0.001,
+    observedEffect: 0.75,
+    ciLower: 0.60,
+    ciUpper: 0.90,
+    minimumMeaningfulEffect: 0.50,
+    hypothesisCriterion: 'SUPERIORITY_MINIMUM_EFFECT'
+  });
+  assert(
+    resCaseA4.decision === 'SUPPORTED',
+    'Decision Logic Case A4: Minimum-effect superiority with effect=0.75 and CI [0.60, 0.90] strictly exceeding Delta_min=0.50 -> SUPPORTED'
+  );
+
+  // Test Case A5: Minimum-effect superiority with effect=0.50 and CI [0.50, 0.80] touching Delta_min=0.50 bound -> INCONCLUSIVE under strict-bound convention
+  const resCaseA5 = evaluateStatisticalFalsification({
+    pValue: 0.005,
+    observedEffect: 0.50,
+    ciLower: 0.50,
+    ciUpper: 0.80,
+    minimumMeaningfulEffect: 0.50,
+    hypothesisCriterion: 'SUPERIORITY_MINIMUM_EFFECT'
+  });
+  assert(
+    resCaseA5.decision === 'INCONCLUSIVE',
+    'Decision Logic Case A5: Minimum-effect superiority with effect=0.50 and CI [0.50, 0.80] touching Delta_min=0.50 bound -> INCONCLUSIVE under strict-bound convention'
+  );
+
+  // Test Case A6: Minimum-effect superiority with effect=0.30 and wide CI [-0.10, 0.70] encompassing Delta_min=0.50 -> INCONCLUSIVE
+  const resCaseA6 = evaluateStatisticalFalsification({
+    pValue: 0.15,
+    observedEffect: 0.30,
+    ciLower: -0.10,
+    ciUpper: 0.70,
+    minimumMeaningfulEffect: 0.50,
+    hypothesisCriterion: 'SUPERIORITY_MINIMUM_EFFECT'
+  });
+  assert(
+    resCaseA6.decision === 'INCONCLUSIVE',
+    'Decision Logic Case A6: Minimum-effect superiority with effect=0.30 and wide CI [-0.10, 0.70] encompassing Delta_min=0.50 -> INCONCLUSIVE'
+  );
+
+  // Statistical Distinction: Highly significant p < 0.0001 against zero with point estimate 0.52 > 0.50 does NOT establish minimum-effect superiority
+  const resPValueZeroNotMin = evaluateStatisticalFalsification({
+    pValue: 0.0001,
+    observedEffect: 0.52,
+    ciLower: 0.42,
+    ciUpper: 0.62,
+    minimumMeaningfulEffect: 0.50,
+    hypothesisCriterion: 'SUPERIORITY_MINIMUM_EFFECT'
+  });
+  assert(
+    resPValueZeroNotMin.decision === 'INCONCLUSIVE',
+    'Statistical Distinction: Highly significant p < 0.0001 against zero with point estimate 0.52 > 0.50 does NOT establish minimum-effect superiority when lower bound 0.42 <= 0.50 -> INCONCLUSIVE'
+  );
 
   // Test Case B: Statistically significant contrary effect -> FALSIFIED
   const resContrary = evaluateStatisticalFalsification({
@@ -382,18 +484,344 @@ async function runStage4E3TestSuite() {
     'Decision Logic C: Justification explicitly notes avoidance of the affirming-the-null fallacy'
   );
 
-  // Test Case D: Equivalence testing (TOST) upper bound strictly below Delta_min -> PRACTICALLY_EQUIVALENT / FALSIFIED
+  // Test Case D: Prespecified equivalence testing (TOST) where CI is strictly inside [-delta_eq, +delta_eq] -> PRACTICALLY_EQUIVALENT
   const resEquivalent = evaluateStatisticalFalsification({
     pValue: 0.04,
     observedEffect: 0.08,
     ciLower: 0.02,
     ciUpper: 0.14,
     minimumMeaningfulEffect: 0.50,
-    tostEquivalenceBound: 0.20
+    tostEquivalenceBound: 0.20,
+    hypothesisCriterion: 'EQUIVALENCE'
   });
   assert(
     resEquivalent.decision === 'PRACTICALLY_EQUIVALENT',
-    'Decision Logic D (TOST Equivalence): CI [0.02, 0.14] strictly bounded below Delta_min=0.50 and within [-0.20, +0.20] -> PRACTICALLY_EQUIVALENT'
+    'Decision Logic D (TOST Equivalence): CI [0.02, 0.14] strictly bounded within [-0.20, +0.20] with prespecified EQUIVALENCE criterion -> PRACTICALLY_EQUIVALENT'
+  );
+
+  // Test Case E: Boundary-touching CI does NOT satisfy strict TOST equivalence -> INCONCLUSIVE
+  const resBoundaryTouching = evaluateStatisticalFalsification({
+    pValue: 0.04,
+    observedEffect: 0.10,
+    ciLower: 0.00,
+    ciUpper: 0.20,
+    minimumMeaningfulEffect: 0.50,
+    tostEquivalenceBound: 0.20,
+    hypothesisCriterion: 'EQUIVALENCE'
+  });
+  assert(
+    resBoundaryTouching.decision === 'INCONCLUSIVE',
+    'Decision Logic E (Boundary Touching): CI [0.00, 0.20] touching equivalence upper bound delta_eq=0.20 fails strict TOST containment -> INCONCLUSIVE'
+  );
+
+  // Test Case F: CI below Delta_min but outside equivalence bounds -> FALSIFIED under minimum-effect
+  const resBelowMinOutsideEquiv = evaluateStatisticalFalsification({
+    pValue: 0.15,
+    observedEffect: -0.10,
+    ciLower: -0.35,
+    ciUpper: 0.15,
+    minimumMeaningfulEffect: 0.50,
+    tostEquivalenceBound: 0.20,
+    hypothesisCriterion: 'SUPERIORITY_MINIMUM_EFFECT'
+  });
+  assert(
+    resBelowMinOutsideEquiv.decision === 'FALSIFIED',
+    'Decision Logic F: CI [-0.35, 0.15] below Delta_min=0.50 but extending beyond -0.20 is not equivalent, but is FALSIFIED under SUPERIORITY_MINIMUM_EFFECT'
+  );
+  assert(
+    resBelowMinOutsideEquiv.metadata?.isMinimumEffectFalsified === true,
+    'Decision Logic F: Metadata explicitly marks minimum-effect hypothesis as falsified'
+  );
+  assert(
+    resBelowMinOutsideEquiv.metadata?.isStatisticallyAdverseEffectEstablished === false,
+    'Decision Logic F: Zero-crossing interval [-0.35, 0.15] does NOT establish a statistically significant adverse effect'
+  );
+  assert(
+    resBelowMinOutsideEquiv.justification.includes('does NOT establish a statistically significant adverse/negative effect'),
+    'Decision Logic F: Justification explicitly clarifies that zero-crossing does not establish a negative effect'
+  );
+
+  // Test Case G: Conservative validation on contradictory/non-finite inputs -> INVALID_INPUT
+  const resContradictory = evaluateStatisticalFalsification({
+    pValue: 0.001,
+    observedEffect: 0.40,
+    ciLower: -0.20,
+    ciUpper: 0.60,
+    minimumMeaningfulEffect: 0.50
+  });
+  assert(
+    resContradictory.decision === 'INVALID_INPUT',
+    'Decision Logic G (Input Validation): Contradictory two-tailed input (p=0.001 but CI crosses 0) returns INVALID_INPUT'
+  );
+
+  const resInvertedCI = evaluateStatisticalFalsification({
+    pValue: 0.01,
+    observedEffect: 0.50,
+    ciLower: 0.80,
+    ciUpper: 0.20,
+    minimumMeaningfulEffect: 0.50
+  });
+  assert(
+    resInvertedCI.decision === 'INVALID_INPUT',
+    'Decision Logic G (Input Validation): Inverted CI bounds (ciLower > ciUpper) returns INVALID_INPUT'
+  );
+
+  const resNanInput = evaluateStatisticalFalsification({
+    pValue: NaN,
+    observedEffect: 0.50,
+    ciLower: 0.10,
+    ciUpper: 0.90,
+    minimumMeaningfulEffect: 0.50
+  });
+  assert(
+    resNanInput.decision === 'INVALID_INPUT',
+    'Decision Logic G (Input Validation): NaN pValue returns INVALID_INPUT'
+  );
+
+  // Statistical Contract: Confidence Level and Alpha Mismatch Tests
+  const resConfLevelMismatch = evaluateStatisticalFalsification({
+    pValue: 0.03,
+    observedEffect: 0.60,
+    ciLower: 0.52,
+    ciUpper: 0.68,
+    alpha: 0.05,
+    confidenceLevel: 0.80, // Mismatch for two-sided test: expected 0.95
+    tails: 2,
+    hypothesisCriterion: 'SUPERIORITY_MINIMUM_EFFECT',
+    minimumMeaningfulEffect: 0.50
+  });
+  assert(
+    resConfLevelMismatch.decision === 'INVALID_INPUT' && resConfLevelMismatch.justification.includes('Confidence level mismatch'),
+    'Statistical Contract: Two-sided test at alpha=0.05 with confidenceLevel=0.80 returns INVALID_INPUT'
+  );
+
+  const resTostConfMismatch = evaluateStatisticalFalsification({
+    pValue: 0.02,
+    observedEffect: 0.05,
+    ciLower: -0.05,
+    ciUpper: 0.15,
+    alpha: 0.05,
+    confidenceLevel: 0.99, // Mismatch for TOST: expected 1 - 2*alpha = 0.90
+    hypothesisCriterion: 'EQUIVALENCE',
+    tostEquivalenceBound: 0.20
+  });
+  assert(
+    resTostConfMismatch.decision === 'INVALID_INPUT' && resTostConfMismatch.justification.includes('Confidence level mismatch for TOST'),
+    'Statistical Contract: TOST at alpha=0.05 with confidenceLevel=0.99 returns INVALID_INPUT'
+  );
+
+  const resInvalidAlpha = evaluateStatisticalFalsification({
+    pValue: 0.03,
+    observedEffect: 0.60,
+    ciLower: 0.52,
+    ciUpper: 0.68,
+    alpha: -0.05,
+    hypothesisCriterion: 'SUPERIORITY_MINIMUM_EFFECT',
+    minimumMeaningfulEffect: 0.50
+  });
+  assert(
+    resInvalidAlpha.decision === 'INVALID_INPUT',
+    'Statistical Contract: Negative alpha returns INVALID_INPUT'
+  );
+
+  // TOST One-Sided P-Value Verification
+  const resTostPValPassed = evaluateStatisticalFalsification({
+    pValue: 0.02,
+    observedEffect: 0.04,
+    ciLower: -0.08,
+    ciUpper: 0.12,
+    alpha: 0.05,
+    tostEquivalenceBound: 0.20,
+    tostPLower: 0.015,
+    tostPUpper: 0.025,
+    hypothesisCriterion: 'EQUIVALENCE'
+  });
+  assert(
+    resTostPValPassed.decision === 'PRACTICALLY_EQUIVALENT' && resTostPValPassed.metadata?.tostDetails?.bothOneSidedTestsPassed === true,
+    'Statistical Contract (TOST): Both one-sided tests (pLower=0.015, pUpper=0.025 < 0.05) confirmed -> PRACTICALLY_EQUIVALENT'
+  );
+
+  const resTostPValFailed = evaluateStatisticalFalsification({
+    pValue: 0.04,
+    observedEffect: 0.10,
+    ciLower: -0.05,
+    ciUpper: 0.18,
+    alpha: 0.05,
+    tostEquivalenceBound: 0.20,
+    tostPLower: 0.01,
+    tostPUpper: 0.09, // Fails upper one-sided test at alpha=0.05
+    hypothesisCriterion: 'EQUIVALENCE'
+  });
+  assert(
+    resTostPValFailed.decision === 'INCONCLUSIVE' && resTostPValFailed.metadata?.tostDetails?.bothOneSidedTestsPassed === false,
+    'Statistical Contract (TOST): Failed upper test (pUpper=0.09 >= 0.05) prevents equivalence -> INCONCLUSIVE'
+  );
+
+  // Test Case H: One-sided vs Two-sided testing
+  const resOneTailedSupported = evaluateStatisticalFalsification({
+    pValue: 0.03,
+    observedEffect: 0.35,
+    ciLower: 0.25,
+    ciUpper: 0.55,
+    minimumMeaningfulEffect: 0.20,
+    tails: 1,
+    hypothesisCriterion: 'SUPERIORITY_MINIMUM_EFFECT'
+  });
+  assert(
+    resOneTailedSupported.decision === 'SUPPORTED',
+    'Decision Logic H (One-Tailed Supported): One-sided test (tails=1, p=0.03 < 0.05, ciLower=0.25 > 0.20) in hypothesized direction -> SUPPORTED'
+  );
+
+  const resOneTailedOpposite = evaluateStatisticalFalsification({
+    pValue: 0.02,
+    observedEffect: -0.30,
+    ciLower: -0.55,
+    ciUpper: -0.05,
+    minimumMeaningfulEffect: 0.20,
+    tails: 1,
+    hypothesisCriterion: 'SUPERIORITY_MINIMUM_EFFECT'
+  });
+  assert(
+    resOneTailedOpposite.decision === 'FALSIFIED',
+    'Decision Logic H (One-Tailed Opposite Direction): One-sided test with effect strictly in opposite direction -> FALSIFIED'
+  );
+
+  // -------------------------------------------------------------------------
+  // NON-INFERIORITY TESTING (Audit 3)
+  // -------------------------------------------------------------------------
+  console.log('\n[Gate 4B - Non-Inferiority] Non-Inferiority Hypothesis Verification...');
+
+  // 1. Established Non-Inferiority (Higher is Better: candidate effect = -0.05, CI [-0.15, +0.05], margin = 0.20)
+  const resNI1 = evaluateStatisticalFalsification({
+    pValue: 0.02,
+    observedEffect: -0.05,
+    ciLower: -0.15,
+    ciUpper: 0.05,
+    nonInferiorityMargin: 0.20,
+    directionOfImprovement: 'HIGHER_IS_BETTER',
+    hypothesisCriterion: 'NON_INFERIORITY'
+  });
+  assert(
+    resNI1.decision === 'SUPPORTED',
+    'Non-Inferiority 1 (Established): Lower bound ciLower=-0.15 > -delta_ni=-0.20 -> SUPPORTED'
+  );
+
+  // 2. Evidence of Inferiority Beyond Margin (Higher is Better: candidate effect = -0.35, CI [-0.50, -0.22], margin = 0.20)
+  const resNI2 = evaluateStatisticalFalsification({
+    pValue: 0.01,
+    observedEffect: -0.35,
+    ciLower: -0.50,
+    ciUpper: -0.22,
+    nonInferiorityMargin: 0.20,
+    directionOfImprovement: 'HIGHER_IS_BETTER',
+    hypothesisCriterion: 'NON_INFERIORITY'
+  });
+  assert(
+    resNI2.decision === 'FALSIFIED',
+    'Non-Inferiority 2 (Inferiority Confirmed): Upper bound ciUpper=-0.22 < -delta_ni=-0.20 -> FALSIFIED'
+  );
+
+  // 3. Inconclusive Non-Inferiority (Higher is Better: CI [-0.32, -0.04] spans across margin -0.20)
+  const resNI3 = evaluateStatisticalFalsification({
+    pValue: 0.08,
+    observedEffect: -0.18,
+    ciLower: -0.32,
+    ciUpper: -0.04,
+    nonInferiorityMargin: 0.20,
+    directionOfImprovement: 'HIGHER_IS_BETTER',
+    hypothesisCriterion: 'NON_INFERIORITY'
+  });
+  assert(
+    resNI3.decision === 'INCONCLUSIVE',
+    'Non-Inferiority 3 (Inconclusive): CI [-0.32, -0.04] encompasses -delta_ni=-0.20 -> INCONCLUSIVE'
+  );
+
+  // 4. Boundary-Touching Non-Inferiority (Higher is Better: CI [-0.20, +0.04] touches -0.20)
+  const resNI4 = evaluateStatisticalFalsification({
+    pValue: 0.03,
+    observedEffect: -0.08,
+    ciLower: -0.20,
+    ciUpper: 0.04,
+    nonInferiorityMargin: 0.20,
+    directionOfImprovement: 'HIGHER_IS_BETTER',
+    hypothesisCriterion: 'NON_INFERIORITY'
+  });
+  assert(
+    resNI4.decision === 'INCONCLUSIVE',
+    'Non-Inferiority 4 (Boundary-Touching): ciLower=-0.20 touches -delta_ni=-0.20 margin -> INCONCLUSIVE'
+  );
+
+  // 5. Invalid or Missing Margins (margin undefined or <= 0 -> INVALID_INPUT)
+  const resNI5Missing = evaluateStatisticalFalsification({
+    pValue: 0.02,
+    observedEffect: -0.05,
+    ciLower: -0.15,
+    ciUpper: 0.05,
+    directionOfImprovement: 'HIGHER_IS_BETTER',
+    hypothesisCriterion: 'NON_INFERIORITY'
+  });
+  assert(
+    resNI5Missing.decision === 'INVALID_INPUT' && resNI5Missing.justification.includes('INVALID_INPUT'),
+    'Non-Inferiority 5 (Missing Margin): Missing margin returns INVALID_INPUT'
+  );
+
+  const resNI5Negative = evaluateStatisticalFalsification({
+    pValue: 0.02,
+    observedEffect: -0.05,
+    ciLower: -0.15,
+    ciUpper: 0.05,
+    nonInferiorityMargin: -0.10,
+    directionOfImprovement: 'HIGHER_IS_BETTER',
+    hypothesisCriterion: 'NON_INFERIORITY'
+  });
+  assert(
+    resNI5Negative.decision === 'INVALID_INPUT' && resNI5Negative.justification.includes('INVALID_INPUT'),
+    'Non-Inferiority 5b (Negative Margin): Negative margin returns INVALID_INPUT'
+  );
+
+  // 6. Reversed Effect Direction (LOWER_IS_BETTER, e.g. Latency / Error: delta = +10ms, CI [+2, +25ms], margin = 30ms)
+  const resNI6ReversedSupported = evaluateStatisticalFalsification({
+    pValue: 0.02,
+    observedEffect: 10.0,
+    ciLower: 2.0,
+    ciUpper: 25.0,
+    nonInferiorityMargin: 30.0,
+    directionOfImprovement: 'LOWER_IS_BETTER',
+    hypothesisCriterion: 'NON_INFERIORITY'
+  });
+  assert(
+    resNI6ReversedSupported.decision === 'SUPPORTED',
+    'Non-Inferiority 6 (Reversed Direction Supported): Upper bound ciUpper=+25ms < +delta_ni=+30ms -> SUPPORTED'
+  );
+
+  // 7. Reversed Effect Direction Inferior (LOWER_IS_BETTER: delta = +40ms, CI [+32, +55ms], margin = 30ms)
+  const resNI7ReversedInferior = evaluateStatisticalFalsification({
+    pValue: 0.01,
+    observedEffect: 40.0,
+    ciLower: 32.0,
+    ciUpper: 55.0,
+    nonInferiorityMargin: 30.0,
+    directionOfImprovement: 'LOWER_IS_BETTER',
+    hypothesisCriterion: 'NON_INFERIORITY'
+  });
+  assert(
+    resNI7ReversedInferior.decision === 'FALSIFIED',
+    'Non-Inferiority 7 (Reversed Direction Inferior): Lower bound ciLower=+32ms > +delta_ni=+30ms -> FALSIFIED'
+  );
+
+  // 8. Reversed Effect Direction Inconclusive (LOWER_IS_BETTER: delta = +28ms, CI [+15, +42ms], margin = 30ms)
+  const resNI8ReversedInconclusive = evaluateStatisticalFalsification({
+    pValue: 0.08,
+    observedEffect: 28.0,
+    ciLower: 15.0,
+    ciUpper: 42.0,
+    nonInferiorityMargin: 30.0,
+    directionOfImprovement: 'LOWER_IS_BETTER',
+    hypothesisCriterion: 'NON_INFERIORITY'
+  });
+  assert(
+    resNI8ReversedInconclusive.decision === 'INCONCLUSIVE',
+    'Non-Inferiority 8 (Reversed Direction Inconclusive): CI [+15, +42ms] spans across +delta_ni=+30ms -> INCONCLUSIVE'
   );
 
   // -------------------------------------------------------------------------
@@ -711,6 +1139,111 @@ async function runStage4E3TestSuite() {
     invalidResult.valid === false && invalidResult.issues.length >= 3,
     'Standalone Protocol Validation: Correctly identifies missing baselines, missing metrics, and missing validity quadrants'
   );
+
+  // HTTP Endpoint Validation Tests (Audit 5)
+  console.log('\n[Gate 10 - HTTP] Standalone Protocol Validation Endpoint Authorization & Verification...');
+  const valServer = app.listen(0);
+  const valPort = (valServer.address() as any).port;
+  const valUrl = `http://127.0.0.1:${valPort}/api/research/experiments/validate`;
+
+  // 1. Standalone valid protocol -> 200 OK
+  const valRes1 = await fetch(valUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ protocolPayload: validProtocolPayload })
+  });
+  assert(valRes1.status === 200, 'Validate HTTP 1: Standalone valid payload returns 200 OK');
+
+  // 2. Standalone invalid protocol -> 400 Bad Request with validation issues
+  const valRes2 = await fetch(valUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ protocolPayload: invalidProtocolPayload })
+  });
+  assert(valRes2.status === 400, 'Validate HTTP 2: Standalone invalid payload returns 400 Bad Request');
+
+  // Setup private gap scenario for authorization auditing
+  const privateGapId = '00000000-0000-0000-0000-000000000099';
+  const { error: insertGapErr } = await adminClient.from('research_gaps').upsert({
+    id: privateGapId,
+    gap_statement: 'Private test gap statement for protocol validation security audit.',
+    gap_category: 'COMPUTATIONAL_SCALABILITY',
+    current_epistemic_classification: 'CANDIDATE_RESEARCH_GAP',
+    current_validation_outcome: 'CONFIRMED_UNRESOLVED',
+    model_used: 'gemma-4-26b-a4b-it',
+    model_requested: 'gemma-4-26b-a4b-it',
+    visibility: 'private',
+    created_by: userAId,
+    is_published: false
+  });
+  if (insertGapErr) {
+    console.error('Failed to insert private gap for validation test:', insertGapErr);
+  }
+
+  // 3. Anonymous referencing private gap -> 401 Unauthorized
+  const valRes3 = await fetch(valUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ gap_id: privateGapId, protocolPayload: validProtocolPayload })
+  });
+  assert(valRes3.status === 401, 'Validate HTTP 3: Anonymous referencing private gap returns 401 Unauthorized');
+
+  // 4. Forged body userId without Authorization header -> 401 Unauthorized
+  const valRes4 = await fetch(valUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ userId: userAId, gap_id: privateGapId, protocolPayload: validProtocolPayload })
+  });
+  assert(valRes4.status === 401, 'Validate HTTP 4: Forged body userId without auth header returns 401 Unauthorized');
+
+  // 5. Authenticated non-owner (tokenB) referencing private gap -> 403 Forbidden
+  const valRes5 = await fetch(valUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tokenB}` },
+    body: JSON.stringify({ gap_id: privateGapId, protocolPayload: validProtocolPayload })
+  });
+  assert(valRes5.status === 403, 'Validate HTTP 5: Authenticated non-owner referencing private gap returns 403 Forbidden');
+
+  // 6. Authenticated owner (tokenA) with mismatched body userId (userB) -> 403 Impersonation Prohibited
+  const valRes6 = await fetch(valUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tokenA}` },
+    body: JSON.stringify({ userId: userBId, gap_id: privateGapId, protocolPayload: validProtocolPayload })
+  });
+  assert(valRes6.status === 403, 'Validate HTTP 6: Token userA with body userId userB returns 403 Impersonation Prohibited');
+
+  // 7. Nonexistent gap ID -> 404 Not Found
+  const valRes7 = await fetch(valUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tokenA}` },
+    body: JSON.stringify({ gap_id: '99999999-9999-9999-9999-999999999999', protocolPayload: validProtocolPayload })
+  });
+  assert(valRes7.status === 404, 'Validate HTTP 7: Nonexistent gap ID returns 404 Not Found');
+
+  // 8. Cross-entity mismatch (experiment ID with mismatched hypothesis ID) -> 400 Bad Request
+  const valRes8 = await fetch(valUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tokenA}` },
+    body: JSON.stringify({
+      experiment_id: protoBenchmark.id,
+      hypothesis_id: '88888888-8888-8888-8888-888888888888',
+      protocolPayload: validProtocolPayload
+    })
+  });
+  assert(valRes8.status === 400, 'Validate HTTP 8: Cross-entity ID mismatch returns 400 Bad Request');
+
+  // 9. Authenticated owner referencing private gap -> 200 OK
+  const valRes9 = await fetch(valUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tokenA}` },
+    body: JSON.stringify({ gap_id: privateGapId, protocolPayload: validProtocolPayload })
+  });
+  assert(valRes9.status === 200, 'Validate HTTP 9: Authenticated owner referencing private gap returns 200 OK');
+
+  valServer.close();
+
+  // Clean up private gap
+  await adminClient.from('research_gaps').delete().eq('id', privateGapId);
 
   // -------------------------------------------------------------------------
   // SUMMARY
